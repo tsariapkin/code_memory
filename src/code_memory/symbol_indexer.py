@@ -339,8 +339,7 @@ def index_project_files(
 
     if dep_rows:
         db.conn.executemany(
-            "INSERT OR IGNORE INTO dependencies"
-            " (source_id, target_id, dep_type) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO dependencies (source_id, target_id, dep_type) VALUES (?, ?, ?)",
             dep_rows,
         )
     db.conn.commit()
