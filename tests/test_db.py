@@ -34,3 +34,21 @@ def test_get_or_create_project_different_paths(db):
     id1 = db.get_or_create_project("/path/a")
     id2 = db.get_or_create_project("/path/b")
     assert id1 != id2
+
+
+def test_update_and_get_last_indexed_commit(db):
+    project_id = db.get_or_create_project("/some/path")
+
+    # Initially null
+    commit = db.get_last_indexed_commit(project_id)
+    assert commit is None
+
+    # Update
+    db.update_last_indexed_commit(project_id, "abc123def456")
+    commit = db.get_last_indexed_commit(project_id)
+    assert commit == "abc123def456"
+
+    # Update again
+    db.update_last_indexed_commit(project_id, "new_commit_hash")
+    commit = db.get_last_indexed_commit(project_id)
+    assert commit == "new_commit_hash"

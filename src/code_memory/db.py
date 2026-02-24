@@ -86,6 +86,20 @@ class Database:
         self.conn.commit()
         return cursor.lastrowid
 
+    def get_last_indexed_commit(self, project_id: int) -> str | None:
+        row = self.execute(
+            "SELECT last_indexed_commit FROM project WHERE id = ?",
+            (project_id,),
+        ).fetchone()
+        return row[0] if row else None
+
+    def update_last_indexed_commit(self, project_id: int, commit_hash: str) -> None:
+        self.execute(
+            "UPDATE project SET last_indexed_commit = ? WHERE id = ?",
+            (commit_hash, project_id),
+        )
+        self.conn.commit()
+
     def close(self) -> None:
         if self._conn:
             self._conn.close()
