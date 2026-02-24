@@ -53,3 +53,28 @@ def test_get_callers_unknown_symbol(graph, project_with_calls):
     graph.build_from_db(db, project_id)
     callers = graph.get_callers("nonexistent")
     assert callers == []
+
+
+def test_trace_call_chain_finds_path(graph, project_with_calls):
+    db, project_id = project_with_calls
+    graph.build_from_db(db, project_id)
+    chains = graph.trace_call_chain("main", "fetch", max_depth=5)
+    assert len(chains) >= 1
+    # main -> process -> fetch
+    assert chains[0][0] == "main"
+    assert chains[0][-1] == "fetch"
+
+
+def test_trace_call_chain_no_path(graph, project_with_calls):
+    db, project_id = project_with_calls
+    graph.build_from_db(db, project_id)
+    chains = graph.trace_call_chain("fetch", "main", max_depth=5)
+    assert chains == []
+
+
+def test_trace_call_chain_respects_max_depth(graph, project_with_calls):
+    db, project_id = project_with_calls
+    graph.build_from_db(db, project_id)
+    # main -> process -> fetch is depth 2, so max_depth=1 shouldn't find it
+    chains = graph.trace_call_chain("main", "fetch", max_depth=1)
+    assert chains == []

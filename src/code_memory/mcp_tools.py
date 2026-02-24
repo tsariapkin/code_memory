@@ -250,3 +250,26 @@ def get_callers(symbol_name: str) -> str:
         if c.get("signature"):
             lines.append(f"    {c['signature']}")
     return "\n".join(lines)
+
+
+@mcp.tool()
+def trace_call_chain(from_symbol: str, to_symbol: str, max_depth: int = 5) -> str:
+    """Find call chains between two symbols (multi-hop traversal).
+
+    Shows all paths from one function to another through the call graph.
+    Useful for understanding how a request flows from endpoint to database.
+
+    Args:
+        from_symbol: Starting symbol name
+        to_symbol: Target symbol name
+        max_depth: Maximum chain length (default 5)
+    """
+    graph = _ensure_graph_loaded()
+    chains = graph.trace_call_chain(from_symbol, to_symbol, max_depth)
+    if not chains:
+        return f"No call chain found from '{from_symbol}' to '{to_symbol}' (max depth {max_depth})."
+
+    lines = [f"Call chains from {from_symbol} to {to_symbol}:"]
+    for i, chain in enumerate(chains, 1):
+        lines.append(f"  {i}. {' -> '.join(chain)}")
+    return "\n".join(lines)
