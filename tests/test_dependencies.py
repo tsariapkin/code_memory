@@ -2,10 +2,9 @@ import pytest
 
 from src.code_memory.db import Database
 from src.code_memory.symbol_indexer import (
-    build_project_dependencies,
     extract_dependencies,
     get_symbol_dependencies,
-    index_project_symbols,
+    index_project_files,
 )
 
 
@@ -53,8 +52,7 @@ def test_extract_dependencies_finds_imports(tmp_path):
 
 def test_get_symbol_dependencies(db, python_project):
     project_id = db.get_or_create_project(str(python_project))
-    index_project_symbols(db, project_id, str(python_project))
-    build_project_dependencies(db, project_id, str(python_project))
+    index_project_files(db, project_id, str(python_project))
 
     deps = get_symbol_dependencies(db, project_id, "login")
     dep_names = [d["symbol_name"] for d in deps]

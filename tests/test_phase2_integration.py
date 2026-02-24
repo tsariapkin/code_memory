@@ -7,9 +7,8 @@ import pytest
 from src.code_memory.db import Database
 from src.code_memory.memory_manager import MemoryManager
 from src.code_memory.symbol_indexer import (
-    build_project_dependencies,
     get_symbol_dependencies,
-    index_project_symbols,
+    index_project_files,
     query_symbol,
 )
 
@@ -51,11 +50,8 @@ def test_full_phase2_workflow(project, db):
     project_id = db.get_or_create_project(str(project))
 
     # Step 1: Index the project
-    sym_count = index_project_symbols(db, project_id, str(project))
+    sym_count, dep_count = index_project_files(db, project_id, str(project))
     assert sym_count >= 5  # User, __init__, greet, User import, create_user
-
-    # Step 2: Build dependencies
-    dep_count = build_project_dependencies(db, project_id, str(project))
     assert dep_count >= 1  # create_user -> User at minimum
 
     # Step 3: Query a symbol — get signature, not whole file
