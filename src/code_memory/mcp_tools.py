@@ -226,3 +226,27 @@ def get_dependencies(symbol_name: str) -> str:
         if d.get("signature"):
             lines.append(f"    {d['signature']}")
     return "\n".join(lines)
+
+
+@mcp.tool()
+def get_callers(symbol_name: str) -> str:
+    """List what calls or imports a symbol (reverse dependency lookup).
+
+    Useful for understanding impact of changes — "who will break if I change this?"
+
+    Args:
+        symbol_name: Exact symbol name (e.g. "validate", "UserService.login")
+    """
+    graph = _ensure_graph_loaded()
+    callers = graph.get_callers(symbol_name)
+    if not callers:
+        return f"No callers found for '{symbol_name}'."
+
+    lines = [f"Callers of {symbol_name}:"]
+    for c in callers:
+        lines.append(
+            f"  {c['dep_type']} from {c['symbol_name']} ({c['symbol_type']}) in {c['file_path']}"
+        )
+        if c.get("signature"):
+            lines.append(f"    {c['signature']}")
+    return "\n".join(lines)
