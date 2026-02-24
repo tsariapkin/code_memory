@@ -1,6 +1,6 @@
 ---
 name: memory-usage
-description: Use code-memory tools for persistent context across sessions
+description: "IMPORTANT: Before searching code, reading files, or exploring the codebase, use code-memory MCP tools (recall, query_symbols, get_dependencies, get_project_summary) for persistent context. These tools replace Grep/Glob/Read for understanding code structure."
 ---
 
 ## Code Memory
