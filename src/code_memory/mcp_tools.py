@@ -5,9 +5,9 @@ import os
 from mcp.server.fastmcp import FastMCP
 
 from src.code_memory.db import Database, default_db_path
+from src.code_memory.graph_engine import CodeGraph
 from src.code_memory.memory_manager import MemoryManager
 from src.code_memory.symbol_indexer import (
-    get_symbol_dependencies,
     index_project_files,
     query_symbol,
 )
@@ -15,6 +15,22 @@ from src.code_memory.symbol_indexer import (
 mcp = FastMCP("code-memory")
 
 _manager: MemoryManager | None = None
+_graph: CodeGraph | None = None
+
+
+def _get_graph() -> CodeGraph:
+    global _graph
+    if _graph is None:
+        _graph = CodeGraph()
+    return _graph
+
+
+def _ensure_graph_loaded() -> CodeGraph:
+    graph = _get_graph()
+    if not graph.is_loaded:
+        manager = _get_manager()
+        graph.build_from_db(manager.db, manager.project_id)
+    return graph
 
 
 def _get_manager() -> MemoryManager:
@@ -141,9 +157,11 @@ def index_project() -> str:
     if last_commit:
         current = get_current_commit(project_root)
         if current == last_commit:
+            _get_graph().invalidate()
             return "No changes since last index."
         changed_files = get_changed_files(project_root, last_commit)
         if not changed_files:
+            _get_graph().invalidate()
             return "No Python files changed since last index."
 
     sym_count, dep_count = index_project_files(db, project_id, project_root, changed_files)
@@ -152,6 +170,7 @@ def index_project() -> str:
     current_commit = get_current_commit(project_root)
     db.update_last_indexed_commit(project_id, current_commit)
 
+    _get_graph().invalidate()
     if changed_files:
         return (
             f"Incremental index: {sym_count} symbols and"
@@ -187,15 +206,15 @@ def query_symbols(name: str) -> str:
 
 @mcp.tool()
 def get_dependencies(symbol_name: str) -> str:
-    """List what a symbol depends on (calls, imports).
+    """List what a symbol depends on (calls, imports, inherits).
 
     Helps understand code flow without reading entire files.
 
     Args:
         symbol_name: Exact symbol name (e.g. "login", "UserService.get_user")
     """
-    manager = _get_manager()
-    deps = get_symbol_dependencies(manager.db, manager.project_id, symbol_name)
+    graph = _ensure_graph_loaded()
+    deps = graph.get_dependencies(symbol_name)
     if not deps:
         return f"No dependencies found for '{symbol_name}'."
 
