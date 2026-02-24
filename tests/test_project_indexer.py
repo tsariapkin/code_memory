@@ -1,7 +1,11 @@
 import pytest
 
 from src.code_memory.db import Database
-from src.code_memory.symbol_indexer import index_project_symbols, query_symbol
+from src.code_memory.symbol_indexer import (
+    index_project_files,
+    index_project_symbols,
+    query_symbol,
+)
 
 
 @pytest.fixture
@@ -73,3 +77,23 @@ def test_query_symbol_partial_match(db, python_project):
     results = query_symbol(db, project_id, "ver")
     names = [r["symbol_name"] for r in results]
     assert "verify" in names
+
+
+def test_index_project_files_returns_both_counts(db, python_project):
+    project_id = db.get_or_create_project(str(python_project))
+    sym_count, dep_count = index_project_files(db, project_id, str(python_project))
+    assert sym_count >= 3  # login, verify, hashlib import
+    assert dep_count >= 1  # login -> verify
+
+
+def test_index_project_files_is_idempotent(db, python_project):
+    project_id = db.get_or_create_project(str(python_project))
+    sym1, dep1 = index_project_files(db, project_id, str(python_project))
+    sym2, dep2 = index_project_files(db, project_id, str(python_project))
+    assert sym1 == sym2
+    assert dep1 == dep2
+
+    total_syms = db.execute(
+        "SELECT COUNT(*) FROM symbols WHERE project_id = ?", (project_id,)
+    ).fetchone()[0]
+    assert total_syms == sym1

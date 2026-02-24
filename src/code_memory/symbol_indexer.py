@@ -211,6 +211,143 @@ def find_enclosing_symbol(file_path: str, line: int) -> str | None:
     return best_match
 
 
+def _collect_python_files(
+    project_root: str, only_files: list[str] | None = None
+) -> list[tuple[str, str]]:
+    """Collect (full_path, rel_path) pairs for Python files.
+
+    If only_files is given, return only those relative paths (that exist).
+    """
+    if only_files is not None:
+        result = []
+        for rel in only_files:
+            full = os.path.join(project_root, rel)
+            if rel.endswith(".py") and os.path.isfile(full):
+                result.append((full, rel))
+        return result
+
+    result = []
+    for dirpath, dirnames, filenames in os.walk(project_root):
+        # Prune skipped directories in-place
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS]
+        for filename in filenames:
+            if not filename.endswith(".py"):
+                continue
+            full_path = os.path.join(dirpath, filename)
+            rel_path = os.path.relpath(full_path, project_root)
+            result.append((full_path, rel_path))
+    return result
+
+
+def index_project_files(
+    db, project_id: int, project_root: str, changed_files: list[str] | None = None
+) -> tuple[int, int]:
+    """Parse Python files and store symbols + dependencies in one pass.
+
+    If changed_files is provided, only index those files (incremental mode).
+    Returns (symbol_count, dependency_count).
+    """
+    files = _collect_python_files(project_root, changed_files)
+
+    if changed_files is not None:
+        # Delete old symbols and deps for changed files
+        for _, rel_path in files:
+            db.execute(
+                """DELETE FROM dependencies WHERE source_id IN
+                   (SELECT id FROM symbols
+                    WHERE project_id = ? AND file_path = ?)""",
+                (project_id, rel_path),
+            )
+            db.execute(
+                "DELETE FROM symbols WHERE project_id = ? AND file_path = ?",
+                (project_id, rel_path),
+            )
+        # Also clean up deleted files (in changed_files but not on disk)
+        for rel in changed_files:
+            if rel.endswith(".py"):
+                full = os.path.join(project_root, rel)
+                if not os.path.isfile(full):
+                    db.execute(
+                        """DELETE FROM dependencies WHERE source_id IN
+                           (SELECT id FROM symbols
+                            WHERE project_id = ? AND file_path = ?)""",
+                        (project_id, rel),
+                    )
+                    db.execute(
+                        "DELETE FROM symbols WHERE project_id = ? AND file_path = ?",
+                        (project_id, rel),
+                    )
+
+    # Phase 1: Parse files and insert symbols
+    sym_count = 0
+    all_deps = []
+
+    for full_path, rel_path in files:
+        try:
+            symbols = parse_file_symbols(full_path)
+        except Exception:
+            continue
+
+        for sym in symbols:
+            db.execute(
+                """INSERT OR REPLACE INTO symbols
+                   (project_id, file_path, symbol_name, symbol_type,
+                    line_start, line_end, signature, content_hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    project_id,
+                    rel_path,
+                    sym["symbol_name"],
+                    sym["symbol_type"],
+                    sym["line_start"],
+                    sym["line_end"],
+                    sym["signature"],
+                    sym["content_hash"],
+                ),
+            )
+            sym_count += 1
+
+        try:
+            deps = extract_dependencies(full_path)
+            all_deps.extend(deps)
+        except Exception:
+            continue
+
+    db.conn.commit()
+
+    # Phase 2: Batch-insert dependencies using preloaded symbol map
+    if changed_files is None:
+        # Full reindex: clear all deps first
+        db.execute(
+            """DELETE FROM dependencies WHERE source_id IN
+               (SELECT id FROM symbols WHERE project_id = ?)""",
+            (project_id,),
+        )
+
+    rows = db.execute(
+        "SELECT id, symbol_name FROM symbols WHERE project_id = ?",
+        (project_id,),
+    ).fetchall()
+    symbol_map = {row["symbol_name"]: row["id"] for row in rows}
+
+    dep_rows = []
+    for dep in all_deps:
+        source_id = symbol_map.get(dep["source"])
+        target_id = symbol_map.get(dep["target"])
+        if source_id and target_id:
+            dep_rows.append((source_id, target_id, dep["dep_type"]))
+
+    if dep_rows:
+        db.conn.executemany(
+            "INSERT OR IGNORE INTO dependencies"
+            " (source_id, target_id, dep_type) VALUES (?, ?, ?)",
+            dep_rows,
+        )
+    db.conn.commit()
+
+    return sym_count, len(dep_rows)
+
+
 def index_project_symbols(db, project_id: int, project_root: str) -> int:
     """Parse all Python files in the project and store symbols in the database.
 
