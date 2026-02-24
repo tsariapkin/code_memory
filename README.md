@@ -11,7 +11,7 @@ Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 Add the marketplace and install:
 
 ```
-/plugin marketplace add tsariapkin/code-memory
+/plugin marketplace add tsariapkin/code_memory
 /plugin install code-memory@tsariapkin-marketplace
 ```
 
@@ -22,8 +22,8 @@ Add the marketplace and install:
 Clone the repo and install dependencies:
 
 ```bash
-git clone https://github.com/tsariapkin/code-memory.git ~/.claude/plugins/code-memory
-cd ~/.claude/plugins/code-memory
+git clone https://github.com/tsariapkin/code_memory.git ~/.claude/plugins/code_memory
+cd ~/.claude/plugins/code_memory
 uv sync
 ```
 
@@ -41,7 +41,7 @@ Then add the MCP server to your project's `.mcp.json` (or `~/.claude/.mcp.json` 
 }
 ```
 
-Replace `/path/to/code-memory` with the actual path (e.g. `~/.claude/plugins/code-memory`).
+Replace `/path/to/code-memory` with the actual path (e.g. `~/.claude/plugins/code_memory`).
 
 ## Tools
 
