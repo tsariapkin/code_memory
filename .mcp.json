@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "code-memory": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--project", "${CLAUDE_PLUGIN_ROOT}", "python", "-m", "src.code_memory"],
+      "cwd": "${CLAUDE_PLUGIN_ROOT}"
+    }
+  }
+}
