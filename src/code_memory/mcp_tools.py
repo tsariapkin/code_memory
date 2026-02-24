@@ -44,7 +44,11 @@ def _get_manager() -> MemoryManager:
     return _manager
 
 
-@mcp.tool()
+@mcp.tool(
+    name="remember",
+    title="Remember",
+    description="Store a memory about code, optionally linked to a file/symbol.",
+)
 def remember(
     notes: str,
     file_path: str | None = None,
@@ -76,7 +80,11 @@ def remember(
     return f"Stored memory #{memory_id}{symbol_msg}"
 
 
-@mcp.tool()
+@mcp.tool(
+    name="recall",
+    title="Recall",
+    description="Search memories by symbol, file path, or keyword.",
+)
 def recall(query: str) -> str:
     """Search memories by symbol name, file path, or keyword.
 
@@ -99,7 +107,11 @@ def recall(query: str) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(
+    name="get_project_summary",
+    title="Project Summary",
+    description="Overview of memory counts and recent memories.",
+)
 def get_project_summary() -> str:
     """Get an overview of the current project's memories. Call this at the start of each session."""
     manager = _get_manager()
@@ -123,7 +135,11 @@ def get_project_summary() -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(
+    name="forget",
+    title="Forget",
+    description="Delete a memory by its ID. Use to remove outdated or incorrect memories.",
+)
 def forget(memory_id: int) -> str:
     """Delete a memory by its ID. Use this to remove outdated or incorrect memories.
 
@@ -136,7 +152,11 @@ def forget(memory_id: int) -> str:
     return f"Memory #{memory_id} not found."
 
 
-@mcp.tool()
+@mcp.tool(
+    name="index_project",
+    title="Index Project",
+    description="Parse all Python files to extract symbols and dependencies.",
+)
 def index_project() -> str:
     """Index all Python files in the current project.
 
@@ -179,7 +199,11 @@ def index_project() -> str:
     return f"Indexed {sym_count} symbols and {dep_count} dependencies."
 
 
-@mcp.tool()
+@mcp.tool(
+    name="query_symbols",
+    title="Query Symbols",
+    description="Look up symbols by name. Returns signatures and locations.",
+)
 def query_symbols(name: str) -> str:
     """Look up symbols (functions, classes, methods) by name.
 
@@ -204,7 +228,11 @@ def query_symbols(name: str) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(
+    name="get_dependencies",
+    title="Get Dependencies",
+    description="List what a symbol calls, imports, or inherits.",
+)
 def get_dependencies(symbol_name: str) -> str:
     """List what a symbol depends on (calls, imports, inherits).
 
@@ -228,7 +256,11 @@ def get_dependencies(symbol_name: str) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(
+    name="get_callers",
+    title="Get Callers",
+    description="Reverse dependency lookup — find what calls or imports a symbol.",
+)
 def get_callers(symbol_name: str) -> str:
     """List what calls or imports a symbol (reverse dependency lookup).
 
@@ -252,7 +284,11 @@ def get_callers(symbol_name: str) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(
+    name="trace_call_chain",
+    title="Trace Call Chain",
+    description="Find all call paths between two symbols via multi-hop graph traversal.",
+)
 def trace_call_chain(from_symbol: str, to_symbol: str, max_depth: int = 5) -> str:
     """Find call chains between two symbols (multi-hop traversal).
 
