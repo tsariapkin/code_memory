@@ -70,10 +70,11 @@ def test_full_graph_workflow(setup):
     caller_names = [c["symbol_name"] for c in callers]
     assert "User.validate" in caller_names or "validate" in caller_names
 
-    # Graph has nodes from both files
-    assert "create_user" in graph.graph.nodes
-    assert "list_users" in graph.graph.nodes
-    assert "check_email" in graph.graph.nodes
+    # Graph has nodes from both files (keys are file_path::symbol_name)
+    node_symbols = {d["symbol_name"] for _, d in graph.graph.nodes(data=True)}
+    assert "create_user" in node_symbols
+    assert "list_users" in node_symbols
+    assert "check_email" in node_symbols
 
 
 def test_graph_rebuilds_after_invalidate(setup):

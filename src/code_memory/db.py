@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS dependencies (
     source_id INTEGER REFERENCES symbols(id),
     target_id INTEGER REFERENCES symbols(id),
     dep_type TEXT,
-    PRIMARY KEY (source_id, target_id)
+    PRIMARY KEY (source_id, target_id, dep_type)
 );
 
 CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(project_id, file_path);

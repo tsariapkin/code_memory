@@ -39,12 +39,17 @@ def indexed_project(tmp_path, db):
     return db, project_id
 
 
+def _has_node_with_symbol(graph, symbol_name):
+    """Check if the graph has any node with the given symbol_name attribute."""
+    return any(d.get("symbol_name") == symbol_name for _, d in graph.graph.nodes(data=True))
+
+
 def test_build_from_db_loads_nodes(graph, indexed_project):
     db, project_id = indexed_project
     graph.build_from_db(db, project_id)
     assert len(graph.graph.nodes) > 0
-    assert "bark" in graph.graph.nodes
-    assert "main" in graph.graph.nodes
+    assert _has_node_with_symbol(graph, "bark")
+    assert _has_node_with_symbol(graph, "main")
 
 
 def test_build_from_db_loads_edges(graph, indexed_project):

@@ -264,6 +264,7 @@ def trace_call_chain(from_symbol: str, to_symbol: str, max_depth: int = 5) -> st
         to_symbol: Target symbol name
         max_depth: Maximum chain length (default 5)
     """
+    max_depth = min(max_depth, 20)
     graph = _ensure_graph_loaded()
     chains = graph.trace_call_chain(from_symbol, to_symbol, max_depth)
     if not chains:
