@@ -52,3 +52,36 @@ def test_update_and_get_last_indexed_commit(db):
     db.update_last_indexed_commit(project_id, "new_commit_hash")
     commit = db.get_last_indexed_commit(project_id)
     assert commit == "new_commit_hash"
+
+
+def test_symbols_table_has_language_column(db):
+    project_id = db.get_or_create_project("/test")
+    db.execute(
+        """INSERT INTO symbols
+           (project_id, file_path, symbol_name, symbol_type, language)
+           VALUES (?, ?, ?, ?, ?)""",
+        (project_id, "test.py", "foo", "function", "python"),
+    )
+    db.conn.commit()
+    row = db.execute("SELECT language FROM symbols WHERE symbol_name = 'foo'").fetchone()
+    assert row["language"] == "python"
+
+
+def test_symbols_language_defaults_to_python(db):
+    project_id = db.get_or_create_project("/test")
+    db.execute(
+        """INSERT INTO symbols
+           (project_id, file_path, symbol_name, symbol_type)
+           VALUES (?, ?, ?, ?)""",
+        (project_id, "test.py", "bar", "function"),
+    )
+    db.conn.commit()
+    row = db.execute("SELECT language FROM symbols WHERE symbol_name = 'bar'").fetchone()
+    assert row["language"] == "python"
+
+
+def test_dependencies_dep_type_index_exists(db):
+    indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_deps_type'"
+    ).fetchall()
+    assert len(indexes) == 1

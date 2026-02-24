@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS symbols (
     file_path TEXT NOT NULL,
     symbol_name TEXT NOT NULL,
     symbol_type TEXT NOT NULL,
+    language TEXT DEFAULT 'python',
     line_start INTEGER,
     line_end INTEGER,
     signature TEXT,
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS dependencies (
 
 CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(project_id, file_path);
 CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(project_id, symbol_name);
+CREATE INDEX IF NOT EXISTS idx_deps_type ON dependencies(dep_type);
 """
 
 
