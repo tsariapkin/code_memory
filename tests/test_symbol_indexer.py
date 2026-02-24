@@ -1,4 +1,4 @@
-from src.code_memory.symbol_indexer import parse_file_symbols
+from src.code_memory.symbol_indexer import _get_parser, parse_file_symbols
 
 SAMPLE_CODE = '''\
 import os
@@ -92,3 +92,9 @@ def test_parse_includes_content_hash(tmp_path):
     greet = next(s for s in symbols if s["symbol_name"] == "greet")
     assert greet["content_hash"] is not None
     assert len(greet["content_hash"]) > 0
+
+
+def test_parser_is_cached():
+    p1 = _get_parser()
+    p2 = _get_parser()
+    assert p1 is p2

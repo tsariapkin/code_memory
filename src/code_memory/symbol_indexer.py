@@ -44,8 +44,14 @@ SKIP_DIRS = frozenset(
 )
 
 
-def _make_parser() -> Parser:
-    return Parser(PY_LANGUAGE)
+_parser: Parser | None = None
+
+
+def _get_parser() -> Parser:
+    global _parser
+    if _parser is None:
+        _parser = Parser(PY_LANGUAGE)
+    return _parser
 
 
 def _content_hash(text: bytes) -> str:
@@ -68,7 +74,7 @@ def parse_file_symbols(file_path: str) -> list[dict]:
     with open(file_path, "rb") as f:
         source = f.read()
 
-    parser = _make_parser()
+    parser = _get_parser()
     tree = parser.parse(source)
     root = tree.root_node
 
@@ -276,7 +282,7 @@ def extract_dependencies(file_path: str) -> list[dict]:
     with open(file_path, "rb") as f:
         source = f.read()
 
-    parser = _make_parser()
+    parser = _get_parser()
     tree = parser.parse(source)
     root = tree.root_node
 
