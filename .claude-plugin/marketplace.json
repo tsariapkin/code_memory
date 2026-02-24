@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "code-memory",
-      "source": ".",
+      "source": "./",
       "description": "Persistent code memory and symbol-level context for Claude",
       "version": "0.1.0"
     }
