@@ -4,35 +4,44 @@ A Claude Code plugin that gives Claude persistent memory and symbol-level code i
 
 ## Installation
 
-### As a Claude Code plugin
+Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
-```bash
-claude plugin add /path/to/code-memory
+### Via Claude Code marketplace (recommended)
+
+Add the marketplace and install:
+
+```
+/plugin marketplace add tsariapkin/code-memory
+/plugin install code-memory@code-memory-marketplace
 ```
 
-Or add it manually to your project's `.mcp.json`:
+> **Note:** Claude Code does not auto-install Python dependencies. After installing, run `uv sync` in the plugin's cached directory (`~/.claude/plugins/cache/code-memory/`).
+
+### Manual setup
+
+Clone the repo and install dependencies:
+
+```bash
+git clone https://github.com/tsariapkin/code-memory.git ~/.claude/plugins/code-memory
+cd ~/.claude/plugins/code-memory
+uv sync
+```
+
+Then add the MCP server to your project's `.mcp.json` (or `~/.claude/.mcp.json` for global use):
 
 ```json
 {
   "mcpServers": {
     "code-memory": {
       "type": "stdio",
-      "command": "python",
-      "args": ["-m", "src.code_memory"],
-      "cwd": "/path/to/code-memory"
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/code-memory", "python", "-m", "src.code_memory"]
     }
   }
 }
 ```
 
-### Dependencies
-
-Requires Python 3.10+. Install dependencies with [uv](https://docs.astral.sh/uv/):
-
-```bash
-cd /path/to/code-memory
-uv sync
-```
+Replace `/path/to/code-memory` with the actual path (e.g. `~/.claude/plugins/code-memory`).
 
 ## Tools
 

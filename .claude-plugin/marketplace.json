@@ -1,0 +1,14 @@
+{
+  "name": "code-memory-marketplace",
+  "owner": {
+    "name": "Aleksandr Tsariapkin"
+  },
+  "plugins": [
+    {
+      "name": "code-memory",
+      "source": ".",
+      "description": "Persistent code memory and symbol-level context for Claude",
+      "version": "0.1.0"
+    }
+  ]
+}
