@@ -22,3 +22,17 @@ def has_file_changed(repo_path: str, file_path: str, since_commit: str) -> bool:
         text=True,
     )
     return len(result.stdout.strip()) > 0
+
+
+def get_changed_files(repo_path: str, since_commit: str, extension: str = ".py") -> list[str]:
+    """Return list of files changed since a commit, filtered by extension."""
+    result = subprocess.run(
+        ["git", "diff", "--name-only", since_commit, "HEAD"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+    )
+    files = [f for f in result.stdout.strip().splitlines() if f]
+    if extension:
+        files = [f for f in files if f.endswith(extension)]
+    return files
