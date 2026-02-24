@@ -3,7 +3,6 @@ import pytest
 from src.code_memory.db import Database
 from src.code_memory.symbol_indexer import (
     index_project_files,
-    index_project_symbols,
     query_symbol,
 )
 
@@ -34,8 +33,8 @@ def python_project(tmp_path):
 
 def test_index_project_finds_all_symbols(db, python_project):
     project_id = db.get_or_create_project(str(python_project))
-    count = index_project_symbols(db, project_id, str(python_project))
-    assert count >= 3  # login, verify, hashlib import
+    sym_count, dep_count = index_project_files(db, project_id, str(python_project))
+    assert sym_count >= 3  # login, verify, hashlib import
 
     rows = db.execute(
         "SELECT symbol_name, symbol_type FROM symbols WHERE project_id = ? ORDER BY symbol_name",
@@ -48,19 +47,19 @@ def test_index_project_finds_all_symbols(db, python_project):
 
 def test_index_project_is_idempotent(db, python_project):
     project_id = db.get_or_create_project(str(python_project))
-    count1 = index_project_symbols(db, project_id, str(python_project))
-    count2 = index_project_symbols(db, project_id, str(python_project))
-    assert count1 == count2
+    sym1, _ = index_project_files(db, project_id, str(python_project))
+    sym2, _ = index_project_files(db, project_id, str(python_project))
+    assert sym1 == sym2
 
     total = db.execute(
         "SELECT COUNT(*) FROM symbols WHERE project_id = ?", (project_id,)
     ).fetchone()[0]
-    assert total == count1  # no duplicates
+    assert total == sym1  # no duplicates
 
 
 def test_query_symbol_returns_details(db, python_project):
     project_id = db.get_or_create_project(str(python_project))
-    index_project_symbols(db, project_id, str(python_project))
+    index_project_files(db, project_id, str(python_project))
 
     results = query_symbol(db, project_id, "login")
     assert len(results) == 1
@@ -72,7 +71,7 @@ def test_query_symbol_returns_details(db, python_project):
 
 def test_query_symbol_partial_match(db, python_project):
     project_id = db.get_or_create_project(str(python_project))
-    index_project_symbols(db, project_id, str(python_project))
+    index_project_files(db, project_id, str(python_project))
 
     results = query_symbol(db, project_id, "ver")
     names = [r["symbol_name"] for r in results]

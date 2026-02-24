@@ -348,56 +348,6 @@ def index_project_files(
     return sym_count, len(dep_rows)
 
 
-def index_project_symbols(db, project_id: int, project_root: str) -> int:
-    """Parse all Python files in the project and store symbols in the database.
-
-    Uses INSERT OR REPLACE to handle re-indexing (idempotent).
-    Returns the number of symbols indexed.
-    """
-    count = 0
-
-    for dirpath, _dirnames, filenames in os.walk(project_root):
-        rel_dir = os.path.relpath(dirpath, project_root)
-        if rel_dir != "." and any(
-            part.startswith(".") or part in SKIP_DIRS for part in rel_dir.split(os.sep)
-        ):
-            continue
-
-        for filename in filenames:
-            if not filename.endswith(".py"):
-                continue
-
-            full_path = os.path.join(dirpath, filename)
-            rel_path = os.path.relpath(full_path, project_root)
-
-            try:
-                symbols = parse_file_symbols(full_path)
-            except Exception:
-                continue
-
-            for sym in symbols:
-                db.execute(
-                    """INSERT OR REPLACE INTO symbols
-                       (project_id, file_path, symbol_name, symbol_type,
-                        line_start, line_end, signature, content_hash)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        project_id,
-                        rel_path,
-                        sym["symbol_name"],
-                        sym["symbol_type"],
-                        sym["line_start"],
-                        sym["line_end"],
-                        sym["signature"],
-                        sym["content_hash"],
-                    ),
-                )
-                count += 1
-
-    db.conn.commit()
-    return count
-
-
 def query_symbol(db, project_id: int, name: str) -> list[dict]:
     """Query symbols by name (partial match). Returns list of symbol dicts."""
     rows = db.execute(
@@ -497,59 +447,6 @@ def _find_enclosing_func(line: int, func_ranges: list) -> str | None:
                 best_span = span
                 best = name
     return best
-
-
-def build_project_dependencies(db, project_id: int, project_root: str) -> int:
-    """Extract and store dependencies for all Python files in the project.
-
-    Returns the number of dependencies stored.
-    """
-    # Clear existing dependencies for this project
-    db.execute(
-        """DELETE FROM dependencies WHERE source_id IN
-           (SELECT id FROM symbols WHERE project_id = ?)""",
-        (project_id,),
-    )
-
-    count = 0
-    for dirpath, _dirnames, filenames in os.walk(project_root):
-        rel_dir = os.path.relpath(dirpath, project_root)
-        if rel_dir != "." and any(
-            part.startswith(".") or part in SKIP_DIRS for part in rel_dir.split(os.sep)
-        ):
-            continue
-
-        for filename in filenames:
-            if not filename.endswith(".py"):
-                continue
-
-            full_path = os.path.join(dirpath, filename)
-
-            try:
-                deps = extract_dependencies(full_path)
-            except Exception:
-                continue
-
-            for dep in deps:
-                source_row = db.execute(
-                    "SELECT id FROM symbols WHERE project_id = ? AND symbol_name = ?",
-                    (project_id, dep["source"]),
-                ).fetchone()
-                target_row = db.execute(
-                    "SELECT id FROM symbols WHERE project_id = ? AND symbol_name = ?",
-                    (project_id, dep["target"]),
-                ).fetchone()
-
-                if source_row and target_row:
-                    db.execute(
-                        "INSERT OR IGNORE INTO dependencies"
-                        " (source_id, target_id, dep_type) VALUES (?, ?, ?)",
-                        (source_row[0], target_row[0], dep["dep_type"]),
-                    )
-                    count += 1
-
-    db.conn.commit()
-    return count
 
 
 def get_symbol_dependencies(db, project_id: int, symbol_name: str) -> list[dict]:
