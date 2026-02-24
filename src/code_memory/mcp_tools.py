@@ -7,9 +7,8 @@ from mcp.server.fastmcp import FastMCP
 from src.code_memory.db import Database, default_db_path
 from src.code_memory.memory_manager import MemoryManager
 from src.code_memory.symbol_indexer import (
-    build_project_dependencies,
     get_symbol_dependencies,
-    index_project_symbols,
+    index_project_files,
     query_symbol,
 )
 
@@ -128,13 +127,36 @@ def index_project() -> str:
     Extracts functions, classes, methods, imports, and their dependencies.
     Run this when starting work on a new project or after major refactors.
     """
+    from src.code_memory.git_utils import get_changed_files, get_current_commit
+
     manager = _get_manager()
     db = manager.db
     project_id = manager.project_id
     project_root = manager.project_root
 
-    sym_count = index_project_symbols(db, project_id, project_root)
-    dep_count = build_project_dependencies(db, project_id, project_root)
+    # Check for incremental indexing
+    last_commit = db.get_last_indexed_commit(project_id)
+    changed_files = None
+
+    if last_commit:
+        current = get_current_commit(project_root)
+        if current == last_commit:
+            return "No changes since last index."
+        changed_files = get_changed_files(project_root, last_commit)
+        if not changed_files:
+            return "No Python files changed since last index."
+
+    sym_count, dep_count = index_project_files(db, project_id, project_root, changed_files)
+
+    # Update last indexed commit
+    current_commit = get_current_commit(project_root)
+    db.update_last_indexed_commit(project_id, current_commit)
+
+    if changed_files:
+        return (
+            f"Incremental index: {sym_count} symbols and"
+            f" {dep_count} dependencies in {len(changed_files)} files."
+        )
     return f"Indexed {sym_count} symbols and {dep_count} dependencies."
 
 
