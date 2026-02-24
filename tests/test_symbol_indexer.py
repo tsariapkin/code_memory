@@ -98,3 +98,36 @@ def test_parser_is_cached():
     p1 = _get_parser()
     p2 = _get_parser()
     assert p1 is p2
+
+
+INHERITANCE_CODE = """\
+class Base:
+    pass
+
+
+class Mixin:
+    pass
+
+
+class Child(Base, Mixin):
+    def do_thing(self):
+        pass
+"""
+
+
+def test_parse_extracts_base_classes(tmp_path):
+    f = tmp_path / "inherit.py"
+    f.write_text(INHERITANCE_CODE)
+    symbols = parse_file_symbols(str(f))
+
+    child = next(s for s in symbols if s["symbol_name"] == "Child")
+    assert child["base_classes"] == ["Base", "Mixin"]
+
+
+def test_parse_no_base_classes_when_none(tmp_path):
+    f = tmp_path / "inherit.py"
+    f.write_text(INHERITANCE_CODE)
+    symbols = parse_file_symbols(str(f))
+
+    base = next(s for s in symbols if s["symbol_name"] == "Base")
+    assert base["base_classes"] == []

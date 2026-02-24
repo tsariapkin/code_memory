@@ -91,12 +91,23 @@ def parse_file_symbols(file_path: str) -> list[dict]:
                     "line_end": child.end_point[0] + 1,
                     "signature": _extract_signature(child),
                     "content_hash": _content_hash(child.text),
+                    "base_classes": [],
                 }
             )
 
         elif child.type == "class_definition":
             class_name_node = child.child_by_field_name("name")
             class_name = class_name_node.text.decode("utf-8")
+
+            # Extract base classes from superclasses node
+            base_classes = []
+            superclasses = child.child_by_field_name("superclasses")
+            if superclasses:
+                for arg in superclasses.named_children:
+                    if arg.type == "identifier":
+                        base_classes.append(arg.text.decode("utf-8"))
+                    elif arg.type == "attribute":
+                        base_classes.append(arg.text.decode("utf-8"))
 
             symbols.append(
                 {
@@ -106,6 +117,7 @@ def parse_file_symbols(file_path: str) -> list[dict]:
                     "line_end": child.end_point[0] + 1,
                     "signature": _extract_signature(child),
                     "content_hash": _content_hash(child.text),
+                    "base_classes": base_classes,
                 }
             )
 
@@ -124,6 +136,7 @@ def parse_file_symbols(file_path: str) -> list[dict]:
                                 "line_end": body_child.end_point[0] + 1,
                                 "signature": _extract_signature(body_child),
                                 "content_hash": _content_hash(body_child.text),
+                                "base_classes": [],
                             }
                         )
 
@@ -138,6 +151,7 @@ def parse_file_symbols(file_path: str) -> list[dict]:
                             "line_end": child.end_point[0] + 1,
                             "signature": child.text.decode("utf-8").strip(),
                             "content_hash": _content_hash(child.text),
+                            "base_classes": [],
                         }
                     )
                 elif named_child.type == "aliased_import":
@@ -151,6 +165,7 @@ def parse_file_symbols(file_path: str) -> list[dict]:
                                 "line_end": child.end_point[0] + 1,
                                 "signature": child.text.decode("utf-8").strip(),
                                 "content_hash": _content_hash(child.text),
+                                "base_classes": [],
                             }
                         )
 
@@ -169,6 +184,7 @@ def parse_file_symbols(file_path: str) -> list[dict]:
                             "line_end": child.end_point[0] + 1,
                             "signature": child.text.decode("utf-8").strip(),
                             "content_hash": _content_hash(child.text),
+                            "base_classes": [],
                         }
                     )
                 elif named_child.type == "aliased_import":
@@ -182,6 +198,7 @@ def parse_file_symbols(file_path: str) -> list[dict]:
                                 "line_end": child.end_point[0] + 1,
                                 "signature": child.text.decode("utf-8").strip(),
                                 "content_hash": _content_hash(child.text),
+                                "base_classes": [],
                             }
                         )
 
