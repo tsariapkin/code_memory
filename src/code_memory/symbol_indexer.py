@@ -8,6 +8,41 @@ from tree_sitter import Language, Parser
 
 PY_LANGUAGE = Language(tspython.language())
 
+# Directories to skip during project indexing
+SKIP_DIRS = frozenset(
+    {
+        # Python
+        "__pycache__",
+        ".venv",
+        "venv",
+        "env",
+        ".env",
+        ".tox",
+        ".nox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".pytype",
+        "*.egg-info",
+        "dist",
+        "build",
+        "site-packages",
+        # JavaScript / Node
+        "node_modules",
+        "bower_components",
+        ".next",
+        ".nuxt",
+        # General
+        ".git",
+        ".hg",
+        ".svn",
+        ".cache",
+        "vendor",
+        ".terraform",
+        ".serverless",
+    }
+)
+
 
 def _make_parser() -> Parser:
     return Parser(PY_LANGUAGE)
@@ -181,8 +216,7 @@ def index_project_symbols(db, project_id: int, project_root: str) -> int:
     for dirpath, _dirnames, filenames in os.walk(project_root):
         rel_dir = os.path.relpath(dirpath, project_root)
         if rel_dir != "." and any(
-            part.startswith(".") or part in ("__pycache__", "node_modules", ".venv", "venv")
-            for part in rel_dir.split(os.sep)
+            part.startswith(".") or part in SKIP_DIRS for part in rel_dir.split(os.sep)
         ):
             continue
 
@@ -338,8 +372,7 @@ def build_project_dependencies(db, project_id: int, project_root: str) -> int:
     for dirpath, _dirnames, filenames in os.walk(project_root):
         rel_dir = os.path.relpath(dirpath, project_root)
         if rel_dir != "." and any(
-            part.startswith(".") or part in ("__pycache__", "node_modules", ".venv", "venv")
-            for part in rel_dir.split(os.sep)
+            part.startswith(".") or part in SKIP_DIRS for part in rel_dir.split(os.sep)
         ):
             continue
 
