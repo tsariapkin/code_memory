@@ -12,7 +12,7 @@ Add the marketplace and install:
 
 ```
 /plugin marketplace add tsariapkin/code-memory
-/plugin install code-memory@code-memory-marketplace
+/plugin install code-memory@tsariapkin-marketplace
 ```
 
 > **Note:** Claude Code does not auto-install Python dependencies. After installing, run `uv sync` in the plugin's cached directory (`~/.claude/plugins/cache/code-memory/`).
