@@ -50,6 +50,37 @@ def test_extract_dependencies_finds_imports(tmp_path):
     assert "Path" in target_names
 
 
+def test_extract_dependencies_finds_inheritance(tmp_path):
+    code_file = tmp_path / "example.py"
+    code_file.write_text("class Base:\n    pass\n\n\nclass Child(Base):\n    pass\n")
+    deps = extract_dependencies(str(code_file))
+    inherits = [d for d in deps if d["dep_type"] == "inherits"]
+    assert len(inherits) == 1
+    assert inherits[0]["source"] == "Child"
+    assert inherits[0]["target"] == "Base"
+
+
+def test_extract_dependencies_finds_multiple_inheritance(tmp_path):
+    code_file = tmp_path / "example.py"
+    code_file.write_text("class A:\n    pass\n\nclass B:\n    pass\n\nclass C(A, B):\n    pass\n")
+    deps = extract_dependencies(str(code_file))
+    inherits = [d for d in deps if d["dep_type"] == "inherits"]
+    targets = [d["target"] for d in inherits]
+    assert "A" in targets
+    assert "B" in targets
+
+
+def test_extract_dependencies_finds_import_edges(tmp_path):
+    code_file = tmp_path / "example.py"
+    code_file.write_text(
+        "from pathlib import Path\nimport os\n\ndef read_file(name):\n    return Path(name).read_text()\n"
+    )
+    deps = extract_dependencies(str(code_file))
+    import_deps = [d for d in deps if d["dep_type"] == "imports"]
+    # read_file imports Path (used in body)
+    assert any(d["source"] == "read_file" and d["target"] == "Path" for d in import_deps)
+
+
 def test_get_symbol_dependencies(db, python_project):
     project_id = db.get_or_create_project(str(python_project))
     index_project_files(db, project_id, str(python_project))

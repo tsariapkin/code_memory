@@ -410,6 +410,30 @@ def extract_dependencies(file_path: str) -> list[dict]:
                             )
                         )
 
+    # Collect class inheritance
+    class_bases = []
+    for child in root.children:
+        if child.type == "class_definition":
+            class_name = child.child_by_field_name("name").text.decode("utf-8")
+            superclasses = child.child_by_field_name("superclasses")
+            if superclasses:
+                for arg in superclasses.named_children:
+                    if arg.type in ("identifier", "attribute"):
+                        base_name = arg.text.decode("utf-8")
+                        class_bases.append(("inherits", class_name, base_name))
+
+    # Collect import names for matching
+    import_names = set()
+    for child in root.children:
+        if child.type in ("import_statement", "import_from_statement"):
+            for named_child in child.named_children:
+                if named_child.type == "dotted_name":
+                    import_names.add(named_child.text.decode("utf-8"))
+                elif named_child.type == "aliased_import":
+                    name = named_child.child_by_field_name("name")
+                    if name:
+                        import_names.add(name.text.decode("utf-8"))
+
     # Find all function calls in the file
     calls = []
     _collect_calls(root, calls)
@@ -420,7 +444,7 @@ def extract_dependencies(file_path: str) -> list[dict]:
     for call_name, call_line in calls:
         enclosing = _find_enclosing_func(call_line, func_ranges)
         if enclosing and enclosing != call_name:
-            key = (enclosing, call_name)
+            key = (enclosing, call_name, "calls")
             if key not in seen:
                 seen.add(key)
                 deps.append(
@@ -430,6 +454,23 @@ def extract_dependencies(file_path: str) -> list[dict]:
                         "dep_type": "calls",
                     }
                 )
+
+    # Append inheritance edges
+    for dep_type, source, target in class_bases:
+        key = (source, target, dep_type)
+        if key not in seen:
+            seen.add(key)
+            deps.append({"source": source, "target": target, "dep_type": dep_type})
+
+    # Append import edges
+    for call_name, call_line in calls:
+        if call_name in import_names:
+            enclosing = _find_enclosing_func(call_line, func_ranges)
+            if enclosing:
+                key = (enclosing, call_name, "imports")
+                if key not in seen:
+                    seen.add(key)
+                    deps.append({"source": enclosing, "target": call_name, "dep_type": "imports"})
 
     return deps
 
