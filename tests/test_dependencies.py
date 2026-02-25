@@ -88,3 +88,83 @@ def test_get_symbol_dependencies(db, python_project):
     deps = get_symbol_dependencies(db, project_id, "login")
     dep_names = [d["symbol_name"] for d in deps]
     assert "verify" in dep_names
+
+
+def test_method_call_resolves_to_class_method(db, tmp_path):
+    """self.method() and obj.method() should resolve to ClassName.method."""
+    (tmp_path / "service.py").write_text(
+        "class UserService:\n"
+        "    def validate(self):\n"
+        "        return True\n\n"
+        "    def create(self):\n"
+        "        return self.validate()\n"
+    )
+    project_id = db.get_or_create_project(str(tmp_path))
+    sym_count, dep_count = index_project_files(db, project_id, str(tmp_path))
+
+    # The call self.validate() should create a dependency to UserService.validate
+    deps = db.execute(
+        """SELECT s.symbol_name as source, t.symbol_name as target, d.dep_type
+           FROM dependencies d
+           JOIN symbols s ON d.source_id = s.id
+           JOIN symbols t ON d.target_id = t.id
+           WHERE s.project_id = ?""",
+        (project_id,),
+    ).fetchall()
+    dep_pairs = [(dict(d)["source"], dict(d)["target"]) for d in deps]
+    assert ("UserService.create", "UserService.validate") in dep_pairs
+
+
+def test_cross_file_method_call_resolution(db, tmp_path):
+    """Function calling obj.method() across files should resolve correctly."""
+    (tmp_path / "models.py").write_text("class User:\n" "    def save(self):\n" "        pass\n")
+    (tmp_path / "views.py").write_text(
+        "def create_user(data):\n" "    u = User()\n" "    u.save()\n" "    return u\n"
+    )
+    project_id = db.get_or_create_project(str(tmp_path))
+    index_project_files(db, project_id, str(tmp_path))
+
+    deps = get_symbol_dependencies(db, project_id, "create_user")
+    dep_names = [d["symbol_name"] for d in deps]
+    assert "User.save" in dep_names
+
+
+def test_same_name_functions_across_files_no_collision(db, tmp_path):
+    """Two files with same-named helper() should both get dependencies stored."""
+    (tmp_path / "a.py").write_text(
+        "def helper():\n    return 1\n\n" "def use_a():\n    return helper()\n"
+    )
+    (tmp_path / "b.py").write_text(
+        "def helper():\n    return 2\n\n" "def use_b():\n    return helper()\n"
+    )
+    project_id = db.get_or_create_project(str(tmp_path))
+    sym_count, dep_count = index_project_files(db, project_id, str(tmp_path))
+
+    # Both use_a -> helper and use_b -> helper should exist
+    deps_a = get_symbol_dependencies(db, project_id, "use_a")
+    deps_b = get_symbol_dependencies(db, project_id, "use_b")
+    assert any(d["symbol_name"] == "helper" for d in deps_a)
+    assert any(d["symbol_name"] == "helper" for d in deps_b)
+
+
+def test_get_callers_finds_method_callers(db, tmp_path):
+    """get_callers should find callers of methods called via attribute access."""
+    from src.code_memory.graph_engine import CodeGraph
+
+    (tmp_path / "service.py").write_text(
+        "class DB:\n"
+        "    def query(self):\n"
+        "        return []\n\n"
+        "def fetch_data():\n"
+        "    db = DB()\n"
+        "    return db.query()\n"
+    )
+    project_id = db.get_or_create_project(str(tmp_path))
+    index_project_files(db, project_id, str(tmp_path))
+
+    graph = CodeGraph()
+    graph.build_from_db(db, project_id)
+
+    callers = graph.get_callers("DB.query")
+    caller_names = [c["symbol_name"] for c in callers]
+    assert "fetch_data" in caller_names

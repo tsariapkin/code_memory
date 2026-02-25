@@ -33,8 +33,17 @@ Every session, before doing anything else:
 
 ### Storing Context (REQUIRED)
 
-When you discover something important about the code:
-- Call `remember` with concise notes focused on "why" and "how"
+You MUST call `remember()` after any of these events:
+- **Fixed a bug** → remember the root cause and fix (e.g. "get_callers returned 0 because method calls extracted as 'method' didn't match symbol 'Class.method'")
+- **Discovered how something works** → remember the mechanism (e.g. "dependencies are resolved via symbol_map in index_project_files, keyed by symbol_name")
+- **Made an architectural decision** → remember the decision and rationale
+- **Found a non-obvious pattern or gotcha** → remember it to avoid repeating the discovery
+- **Completed a feature** → remember what was added and key implementation details
+
+**Rule of thumb**: If you learned something that would save time in a future session, call `remember()` NOW. Don't wait — context is lost between sessions.
+
+When calling `remember`:
+- Write concise notes focused on "why" and "how", not "what files were changed"
 - Link to specific files and symbols for better recall
 - Memories are automatically embedded for semantic search
 

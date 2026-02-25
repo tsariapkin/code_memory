@@ -813,6 +813,8 @@ def index_project_files(
 
         try:
             deps = extract_dependencies(full_path, language=lang)
+            for d in deps:
+                d["source_file"] = rel_path
             all_deps.extend(deps)
         except Exception:
             logger.warning("Failed to extract dependencies from %s", rel_path, exc_info=True)
@@ -830,15 +832,52 @@ def index_project_files(
         )
 
     rows = db.execute(
-        "SELECT id, symbol_name FROM symbols WHERE project_id = ?",
+        "SELECT id, symbol_name, file_path FROM symbols WHERE project_id = ?",
         (project_id,),
     ).fetchall()
-    symbol_map = {row["symbol_name"]: row["id"] for row in rows}
+
+    # Build symbol lookup: (file_path, symbol_name) -> id for exact matches
+    symbol_by_file: dict[tuple[str, str], int] = {}
+    # symbol_name -> list of (id, file_path) for cross-file resolution
+    symbol_by_name: dict[str, list[tuple[int, str]]] = {}
+    # short_name -> list of (id, file_path) for method name fallback
+    # e.g. "method" -> [(id, path)] when symbol is "ClassName.method"
+    short_name_map: dict[str, list[tuple[int, str]]] = {}
+
+    for row in rows:
+        row = dict(row)
+        sid, sname, fpath = row["id"], row["symbol_name"], row["file_path"]
+        symbol_by_file[(fpath, sname)] = sid
+        symbol_by_name.setdefault(sname, []).append((sid, fpath))
+        if "." in sname:
+            short = sname.rsplit(".", 1)[1]
+            short_name_map.setdefault(short, []).append((sid, fpath))
+
+    def _resolve_symbol(name: str, source_file: str | None = None) -> int | None:
+        """Resolve a symbol name to its ID, with fallback for short method names."""
+        entries = symbol_by_name.get(name)
+        if entries:
+            # Prefer same-file match
+            if source_file:
+                for sid, fpath in entries:
+                    if fpath == source_file:
+                        return sid
+            return entries[0][0]
+        # Fallback: try short method name (e.g. "method" -> "Class.method")
+        entries = short_name_map.get(name)
+        if entries:
+            if source_file:
+                for sid, fpath in entries:
+                    if fpath == source_file:
+                        return sid
+            return entries[0][0]
+        return None
 
     dep_rows = []
     for dep in all_deps:
-        source_id = symbol_map.get(dep["source"])
-        target_id = symbol_map.get(dep["target"])
+        source_file = dep.get("source_file")
+        source_id = _resolve_symbol(dep["source"], source_file)
+        target_id = _resolve_symbol(dep["target"], source_file)
         if source_id and target_id:
             dep_rows.append((source_id, target_id, dep["dep_type"]))
 
