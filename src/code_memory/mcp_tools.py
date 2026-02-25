@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
 
 from mcp.server.fastmcp import FastMCP
 
 from src.code_memory.db import Database, default_db_path
+from src.code_memory.embedding_engine import EmbeddingEngine
 from src.code_memory.graph_engine import CodeGraph
 from src.code_memory.memory_manager import MemoryManager
 from src.code_memory.symbol_indexer import (
@@ -14,10 +16,20 @@ from src.code_memory.symbol_indexer import (
 from src.code_memory.usage_logger import get_usage_stats as _get_usage_stats
 from src.code_memory.usage_logger import log_tool_usage
 
+logger = logging.getLogger(__name__)
+
 mcp = FastMCP("code-memory")
 
 _manager: MemoryManager | None = None
 _graph: CodeGraph | None = None
+_engine: EmbeddingEngine | None = None
+
+
+def _get_engine() -> EmbeddingEngine:
+    global _engine
+    if _engine is None:
+        _engine = EmbeddingEngine()
+    return _engine
 
 
 def _get_graph() -> CodeGraph:
@@ -42,8 +54,72 @@ def _get_manager() -> MemoryManager:
         db_path = default_db_path(project_root)
         db = Database(db_path)
         db.initialize()
-        _manager = MemoryManager(db, project_root)
+        _manager = MemoryManager(db, project_root, embedding_engine=_get_engine())
     return _manager
+
+
+def _embed_symbols(manager: MemoryManager, changed_files: list[str] | None = None) -> int:
+    """Batch-embed all symbols (or only those in changed_files)."""
+    engine = _get_engine()
+    try:
+        engine.ensure_ready()
+    except Exception:
+        logger.warning("Embedding model unavailable, skipping symbol embedding.")
+        return 0
+
+    db = manager.db
+    project_id = manager.project_id
+
+    if changed_files is not None:
+        for f in changed_files:
+            db.execute(
+                """DELETE FROM embeddings WHERE project_id = ? AND source_type = 'symbol'
+                   AND source_id IN
+                   (SELECT id FROM symbols WHERE project_id = ? AND file_path = ?)""",
+                (project_id, project_id, f),
+            )
+    else:
+        db.execute(
+            "DELETE FROM embeddings WHERE project_id = ? AND source_type = 'symbol'",
+            (project_id,),
+        )
+
+    if changed_files:
+        placeholders = ",".join("?" * len(changed_files))
+        rows = db.execute(
+            f"SELECT id, symbol_name, symbol_type, signature, file_path FROM symbols "
+            f"WHERE project_id = ? AND file_path IN ({placeholders})",
+            (project_id, *changed_files),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT id, symbol_name, symbol_type, signature, file_path FROM symbols "
+            "WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+
+    if not rows:
+        db.conn.commit()
+        return 0
+
+    texts = []
+    for r in rows:
+        r = dict(r)
+        texts.append(
+            f"{r['symbol_name']} {r['symbol_type']} {r['signature'] or ''} {r['file_path']}"
+        )
+
+    vectors = engine.embed_batch(texts)
+    for i, r in enumerate(rows):
+        r = dict(r)
+        blob = engine.vector_to_blob(vectors[i])
+        db.execute(
+            "INSERT OR REPLACE INTO embeddings (project_id, source_type, source_id, text, vector) "
+            "VALUES (?, 'symbol', ?, ?, ?)",
+            (project_id, r["id"], texts[i], blob),
+        )
+    db.conn.commit()
+    return len(rows)
 
 
 @mcp.tool(
@@ -105,6 +181,25 @@ def recall(query: str) -> str:
         query: Search term — a symbol name, file path, or keyword
     """
     manager = _get_manager()
+
+    # Try semantic search first
+    results = manager.semantic_search(query, source_type="memory")
+    if results:
+        lines = []
+        for m in results:
+            stale_flag = " [STALE]" if m.get("is_stale") else ""
+            symbol = f" ({m['symbol_name']})" if m.get("symbol_name") else ""
+            file_info = f" in {m['file_path']}" if m.get("file_path") else ""
+            lines.append(
+                f"#{m.get('source_id', m.get('id', '?'))}{stale_flag}"
+                f"{file_info}{symbol}: {m.get('notes', '')}"
+            )
+        log_tool_usage(
+            manager.db, manager.project_id, "recall", f"query={query}", result_empty=False
+        )
+        return "\n".join(lines)
+
+    # Fallback to LIKE search
     results = manager.recall(query)
     if not results:
         log_tool_usage(
@@ -112,7 +207,7 @@ def recall(query: str) -> str:
         )
         return (
             "No memories found. Use remember() to store context,"
-            " or run index_project then try query_symbols."
+            " or run index_project then try search."
         )
 
     lines = []
@@ -122,6 +217,86 @@ def recall(query: str) -> str:
         file_info = f" in {m['file_path']}" if m["file_path"] else ""
         lines.append(f"#{m['id']}{stale_flag}{file_info}{symbol}: {m['notes']}")
     log_tool_usage(manager.db, manager.project_id, "recall", f"query={query}", result_empty=False)
+    return "\n".join(lines)
+
+
+@mcp.tool(
+    name="search",
+    title="Search",
+    description=(
+        "Use when you need to find anything in the codebase."
+        " Searches across memories and symbols using semantic similarity."
+        " Detects relationships between symbols automatically."
+    ),
+)
+def search(query: str, top_k: int = 10) -> str:
+    """Unified semantic search across memories and symbols.
+
+    Returns ranked results with relationship detection.
+    Prefer this over recall() or query_symbols() for natural-language queries.
+
+    Args:
+        query: What to search for (natural language, symbol names, file paths)
+        top_k: Maximum number of results (default 10)
+    """
+    top_k = min(top_k, 50)
+    manager = _get_manager()
+    results = manager.semantic_search(query, top_k=top_k)
+
+    if not results:
+        log_tool_usage(
+            manager.db, manager.project_id, "search", f"query={query}", result_empty=True
+        )
+        return (
+            "No results found. The embedding model may not be available,"
+            " or the index may be empty — try running index_project first."
+        )
+
+    lines = []
+    symbol_names = []
+
+    for i, r in enumerate(results, 1):
+        if r["source_type"] == "memory":
+            stale_flag = " [STALE]" if r.get("is_stale") else ""
+            symbol = f" ({r['symbol_name']})" if r.get("symbol_name") else ""
+            file_info = f" in {r['file_path']}" if r.get("file_path") else ""
+            lines.append(f"{i}. [memory]{stale_flag}{file_info}{symbol}: {r.get('notes', '')}")
+        elif r["source_type"] == "symbol":
+            stype = r.get("symbol_type", "")
+            sname = r.get("symbol_name", "")
+            fpath = r.get("file_path", "")
+            lstart = r.get("line_start", "")
+            lend = r.get("line_end", "")
+            sig = r.get("signature", "")
+            lines.append(f"{i}. [symbol] {stype} {sname} in {fpath}:{lstart}-{lend}")
+            if sig:
+                lines.append(f"   {sig}")
+            symbol_names.append(sname)
+
+    # Relationship detection: check dependency graph for edges between found symbols
+    if len(set(symbol_names)) >= 2:
+        try:
+            graph = _ensure_graph_loaded()
+            unique_symbols = list(set(symbol_names))
+            for i_sym in range(len(unique_symbols)):
+                for j_sym in range(i_sym + 1, len(unique_symbols)):
+                    a, b = unique_symbols[i_sym], unique_symbols[j_sym]
+                    deps_a = graph.get_dependencies(a)
+                    deps_b = graph.get_dependencies(b)
+                    a_to_b = [d for d in deps_a if d["symbol_name"] == b]
+                    b_to_a = [d for d in deps_b if d["symbol_name"] == a]
+                    rel_lines = []
+                    for d in a_to_b:
+                        rel_lines.append(f"  {a} --{d['dep_type']}--> {b}")
+                    for d in b_to_a:
+                        rel_lines.append(f"  {b} --{d['dep_type']}--> {a}")
+                    if rel_lines:
+                        lines.append(f"\n[relationship] {a} <-> {b}:")
+                        lines.extend(rel_lines)
+        except Exception:
+            pass  # Graph not available, skip relationship detection
+
+    log_tool_usage(manager.db, manager.project_id, "search", f"query={query}", result_empty=False)
     return "\n".join(lines)
 
 
@@ -237,14 +412,18 @@ def index_project() -> str:
     current_commit = get_current_commit(project_root)
     db.update_last_indexed_commit(project_id, current_commit)
 
+    # Embed symbols for semantic search
+    embedded = _embed_symbols(manager, changed_files)
+
     _get_graph().invalidate()
     log_tool_usage(manager.db, manager.project_id, "index_project", "", result_empty=False)
+    embed_msg = f" Embedded {embedded} symbols." if embedded else ""
     if changed_files:
         return (
             f"Incremental index: {sym_count} symbols and"
-            f" {dep_count} dependencies in {len(changed_files)} files."
+            f" {dep_count} dependencies in {len(changed_files)} files.{embed_msg}"
         )
-    return f"Indexed {sym_count} symbols and {dep_count} dependencies."
+    return f"Indexed {sym_count} symbols and {dep_count} dependencies.{embed_msg}"
 
 
 @mcp.tool(
@@ -264,6 +443,24 @@ def query_symbols(name: str) -> str:
         name: Symbol name or partial match (e.g. "login", "UserService")
     """
     manager = _get_manager()
+
+    # Try semantic search first
+    results = manager.semantic_search(name, source_type="symbol")
+    if results:
+        lines = []
+        for s in results:
+            lines.append(
+                f"{s.get('symbol_type', '')} {s.get('symbol_name', '')}"
+                f" in {s.get('file_path', '')}:{s.get('line_start', '')}-{s.get('line_end', '')}"
+            )
+            if s.get("signature"):
+                lines.append(f"  {s['signature']}")
+        log_tool_usage(
+            manager.db, manager.project_id, "query_symbols", f"name={name}", result_empty=False
+        )
+        return "\n".join(lines)
+
+    # Fallback to LIKE search
     results = query_symbol(manager.db, manager.project_id, name)
     if not results:
         log_tool_usage(
