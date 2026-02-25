@@ -1,5 +1,5 @@
 ---
-name: stats
+name: memory-stats
 description: Show code-memory tool usage statistics
 argument-hint: [days]
 disable-model-invocation: true
