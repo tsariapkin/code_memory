@@ -14,13 +14,16 @@ def log_tool_usage(
     args_summary: str,
     result_empty: bool,
 ) -> None:
-    truncated = args_summary[:_MAX_ARGS_LENGTH] if args_summary else ""
-    db.execute(
-        """INSERT INTO tool_usage (tool_name, project_id, timestamp, args_summary, result_empty)
-           VALUES (?, ?, ?, ?, ?)""",
-        (tool_name, project_id, time.time(), truncated, result_empty),
-    )
-    db.conn.commit()
+    try:
+        truncated = args_summary[:_MAX_ARGS_LENGTH] if args_summary else ""
+        db.execute(
+            """INSERT INTO tool_usage (tool_name, project_id, timestamp, args_summary, result_empty)
+               VALUES (?, ?, ?, ?, ?)""",
+            (tool_name, project_id, time.time(), truncated, result_empty),
+        )
+        db.conn.commit()
+    except Exception:
+        pass  # Usage logging must never break tool execution
 
 
 def get_usage_stats(db: Database, project_id: int, days: int = 7) -> dict:

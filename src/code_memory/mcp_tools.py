@@ -11,6 +11,7 @@ from src.code_memory.symbol_indexer import (
     index_project_files,
     query_symbol,
 )
+from src.code_memory.usage_logger import get_usage_stats as _get_usage_stats
 from src.code_memory.usage_logger import log_tool_usage
 
 mcp = FastMCP("code-memory")
@@ -438,10 +439,8 @@ def get_usage_stats(days: int = 7) -> str:
     Args:
         days: Number of days to look back (default 7)
     """
-    from src.code_memory.usage_logger import get_usage_stats as _get_stats
-
     manager = _get_manager()
-    stats = _get_stats(manager.db, manager.project_id, days)
+    stats = _get_usage_stats(manager.db, manager.project_id, days)
     if not stats:
         log_tool_usage(
             manager.db, manager.project_id, "get_usage_stats", f"days={days}", result_empty=True
