@@ -427,6 +427,97 @@ def _extract_js_import_names(import_clause, import_node, symbols: list):
                     )
 
 
+def _ts_fix_class_bases(root, symbols: list[dict]):
+    """Fix base_classes for TypeScript classes.
+
+    The TS tree-sitter grammar nests the superclass identifier inside
+    class_heritage > extends_clause > identifier, whereas the JS grammar
+    puts the identifier directly under class_heritage.  The JS extractor
+    therefore misses TS base classes; this helper patches them.
+    """
+    # Build a map of class_name -> symbol dict for quick lookup
+    class_syms = {s["symbol_name"]: s for s in symbols if s["symbol_type"] == "class"}
+
+    def _visit(node):
+        if node.type == "class_declaration":
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                class_name = name_node.text.decode("utf-8")
+                sym = class_syms.get(class_name)
+                if sym and not sym["base_classes"]:
+                    bases = []
+                    for child in node.children:
+                        if child.type == "class_heritage":
+                            for heritage_child in child.children:
+                                if heritage_child.type == "extends_clause":
+                                    for ec_child in heritage_child.named_children:
+                                        if ec_child.type in ("identifier", "member_expression"):
+                                            bases.append(ec_child.text.decode("utf-8"))
+                    if bases:
+                        sym["base_classes"] = bases
+        for child in node.children:
+            _visit(child)
+
+    _visit(root)
+
+
+def _parse_ts_symbols(root, source: bytes) -> list[dict]:
+    """Extract symbols from a TypeScript AST root node.
+
+    Reuses the JS extraction logic and adds TypeScript-specific nodes:
+    interface_declaration and type_alias_declaration.
+    """
+    symbols = _parse_js_symbols(root, source)
+
+    # Fix class base_classes: TS grammar nests identifiers inside extends_clause
+    # within class_heritage, unlike JS where they are direct children.
+    _ts_fix_class_bases(root, symbols)
+
+    # Second pass for TS-specific declarations
+    for child in root.children:
+        node = child
+        # Unwrap export statements
+        if child.type == "export_statement":
+            for export_child in child.named_children:
+                if export_child.type in ("interface_declaration", "type_alias_declaration"):
+                    node = export_child
+                    break
+            else:
+                continue
+
+        if node.type == "interface_declaration":
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                symbols.append(
+                    {
+                        "symbol_name": name_node.text.decode("utf-8"),
+                        "symbol_type": "interface",
+                        "line_start": node.start_point[0] + 1,
+                        "line_end": node.end_point[0] + 1,
+                        "signature": _extract_signature(node),
+                        "content_hash": _content_hash(node.text),
+                        "base_classes": [],
+                    }
+                )
+
+        elif node.type == "type_alias_declaration":
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                symbols.append(
+                    {
+                        "symbol_name": name_node.text.decode("utf-8"),
+                        "symbol_type": "type_alias",
+                        "line_start": node.start_point[0] + 1,
+                        "line_end": node.end_point[0] + 1,
+                        "signature": _extract_signature(node),
+                        "content_hash": _content_hash(node.text),
+                        "base_classes": [],
+                    }
+                )
+
+    return symbols
+
+
 def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict]:
     """Parse a source file and extract all symbols (functions, classes, methods, imports).
 
@@ -439,8 +530,8 @@ def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict
         if language is None:
             return []
 
-    if language not in ("python", "javascript"):
-        return []  # TS and Go implemented in later tasks
+    if language not in ("python", "javascript", "typescript"):
+        return []  # Go implemented in later tasks
 
     with open(file_path, "rb") as f:
         source = f.read()
@@ -453,6 +544,8 @@ def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict
         return _parse_python_symbols(root, source)
     elif language == "javascript":
         return _parse_js_symbols(root, source)
+    elif language == "typescript":
+        return _parse_ts_symbols(root, source)
     else:
         return []
 
@@ -850,8 +943,8 @@ def extract_dependencies(file_path: str, language: str | None = None) -> list[di
         if language is None:
             return []
 
-    if language not in ("python", "javascript"):
-        return []  # TS and Go implemented in later tasks
+    if language not in ("python", "javascript", "typescript"):
+        return []  # Go implemented in later tasks
 
     with open(file_path, "rb") as f:
         source = f.read()
@@ -862,7 +955,7 @@ def extract_dependencies(file_path: str, language: str | None = None) -> list[di
 
     if language == "python":
         return _extract_python_dependencies(root, source)
-    elif language == "javascript":
+    elif language in ("javascript", "typescript"):
         return _extract_js_dependencies(root, source)
     else:
         return []
