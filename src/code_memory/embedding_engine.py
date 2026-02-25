@@ -5,8 +5,6 @@ import os
 import shutil
 from pathlib import Path
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 MODEL_REPO = "Xenova/all-MiniLM-L6-v2"
@@ -74,7 +72,9 @@ class EmbeddingEngine:
         self._tokenizer.enable_truncation(max_length=128)
         self._tokenizer.enable_padding(length=128)
 
-    def embed(self, text: str) -> np.ndarray:
+    def embed(self, text: str):
+        import numpy as np
+
         self.ensure_ready()
         encoded = self._tokenizer.encode(text)
         input_ids = np.array([encoded.ids], dtype=np.int64)
@@ -98,7 +98,9 @@ class EmbeddingEngine:
         normalized = pooled / np.maximum(norm, 1e-12)
         return normalized[0].astype(np.float32)
 
-    def embed_batch(self, texts: list[str]) -> np.ndarray:
+    def embed_batch(self, texts: list[str]):
+        import numpy as np
+
         self.ensure_ready()
         if not texts:
             return np.empty((0, EMBEDDING_DIM), dtype=np.float32)
@@ -122,15 +124,21 @@ class EmbeddingEngine:
         return (pooled / np.maximum(norms, 1e-12)).astype(np.float32)
 
     @staticmethod
-    def cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    def cosine_similarity(query_vec, matrix):
+        import numpy as np
+
         if matrix.size == 0:
             return np.array([])
         return matrix @ query_vec
 
     @staticmethod
-    def vector_to_blob(vec: np.ndarray) -> bytes:
+    def vector_to_blob(vec) -> bytes:
+        import numpy as np
+
         return vec.astype(np.float32).tobytes()
 
     @staticmethod
-    def blob_to_vector(blob: bytes) -> np.ndarray:
+    def blob_to_vector(blob: bytes):
+        import numpy as np
+
         return np.frombuffer(blob, dtype=np.float32)
