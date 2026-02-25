@@ -166,11 +166,12 @@ def forget(memory_id: int) -> str:
     title="Index Project",
     description=(
         "Use when starting on a new project or after major refactors."
-        " Parses all Python files to extract symbols and dependencies."
+        " Parses Python, JavaScript/TypeScript, and Go files"
+        " to extract symbols and dependencies."
     ),
 )
 def index_project() -> str:
-    """Index all Python files in the current project.
+    """Index all source files (Python, JS/TS, Go) in the current project.
 
     Extracts functions, classes, methods, imports, and their dependencies.
     Run this when starting work on a new project or after major refactors.

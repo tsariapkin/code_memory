@@ -53,7 +53,7 @@ The plugin exposes 9 MCP tools:
 | `recall(query)` | Search memories by symbol name, file path, or keyword. Stale memories are flagged. |
 | `get_project_summary()` | Overview of total/stale memory counts and recent memories. |
 | `forget(memory_id)` | Delete a memory by ID. |
-| `index_project()` | Parse all Python files — extracts functions, classes, methods, imports, and builds a dependency graph. |
+| `index_project()` | Parse all source files (Python, JS/TS, Go) — extracts functions, classes, methods, imports, and builds a dependency graph. |
 | `query_symbols(name)` | Look up symbols by name (partial match). Returns signatures and locations. |
 | `get_dependencies(symbol_name)` | List what a symbol calls, imports, or inherits. |
 | `get_callers(symbol_name)` | Reverse dependency lookup — who calls this symbol? |
@@ -111,7 +111,7 @@ trace_call_chain("main", "query_db")         # how does main reach query_db?
 
 - **Storage**: SQLite database per project, stored in `~/.code-memory/`. Each project is identified by a SHA-256 hash of its root path.
 - **Staleness**: When a memory is stored, the current git commit hash is saved. On recall, if the linked file has changed since that commit, the memory is flagged as stale.
-- **Symbol indexing**: Uses [tree-sitter](https://tree-sitter.github.io/) to parse Python files into functions, classes, methods, and imports. Dependency tracking maps function calls, imports, and class inheritance.
+- **Symbol indexing**: Uses [tree-sitter](https://tree-sitter.github.io/) to parse Python, JavaScript/TypeScript, and Go files into functions, classes, methods, imports, and language-specific constructs (interfaces, structs, type aliases). Dependency tracking maps function calls, imports, and class inheritance.
 - **Graph queries**: An in-memory [NetworkX](https://networkx.org/) graph is built from the symbol index on demand, enabling reverse lookups (who calls X?) and multi-hop path finding (how does A reach B?).
 
 ## Development
