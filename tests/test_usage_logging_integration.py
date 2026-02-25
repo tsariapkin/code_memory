@@ -3,8 +3,8 @@ import subprocess
 import pytest
 
 from src.code_memory.db import Database, default_db_path
+from src.code_memory.mcp_tools import get_project_summary, recall, remember
 from src.code_memory.mcp_tools import get_usage_stats as mcp_get_usage_stats
-from src.code_memory.mcp_tools import recall, remember
 
 
 @pytest.fixture
@@ -53,6 +53,16 @@ def test_recall_logs_usage_with_empty_flag(project_env):
     rows = db.execute("SELECT * FROM tool_usage WHERE tool_name = 'recall'").fetchall()
     assert len(rows) == 1
     assert rows[0]["result_empty"] == 1
+
+
+def test_recall_empty_suggests_indexing(project_env):
+    result = recall(query="nonexistent")
+    assert "index" in result.lower()
+
+
+def test_get_project_summary_suggests_indexing_when_no_index(project_env):
+    result = get_project_summary()
+    assert "index" in result.lower()
 
 
 def test_get_usage_stats_tool(project_env):

@@ -109,7 +109,10 @@ def recall(query: str) -> str:
         log_tool_usage(
             manager.db, manager.project_id, "recall", f"query={query}", result_empty=True
         )
-        return "No memories found."
+        return (
+            "No memories found. Use remember() to store context,"
+            " or run index_project then try query_symbols."
+        )
 
     lines = []
     for m in results:
@@ -149,6 +152,21 @@ def get_project_summary() -> str:
 
     if not summary["recent_memories"]:
         lines.append("  (none yet)")
+
+    # Check if index is populated
+    symbol_count = manager.db.execute(
+        "SELECT COUNT(*) FROM symbols WHERE project_id = ?",
+        (manager.project_id,),
+    ).fetchone()[0]
+    last_commit = manager.db.get_last_indexed_commit(manager.project_id)
+
+    if symbol_count == 0:
+        lines.append("")
+        lines.append("Symbol index is empty. Run index_project to populate it.")
+    elif not last_commit:
+        lines.append("")
+        lines.append("Symbol index may be stale. Run index_project to refresh.")
+
     log_tool_usage(manager.db, manager.project_id, "get_project_summary", "", result_empty=False)
     return "\n".join(lines)
 
@@ -293,7 +311,10 @@ def get_dependencies(symbol_name: str) -> str:
             f"symbol={symbol_name}",
             result_empty=True,
         )
-        return f"No dependencies found for '{symbol_name}'."
+        return (
+            f"No dependencies found for '{symbol_name}'."
+            " The index may be empty — try running index_project first."
+        )
 
     lines = [f"Dependencies of {symbol_name}:"]
     for d in deps:
@@ -339,7 +360,10 @@ def get_callers(symbol_name: str) -> str:
             f"symbol={symbol_name}",
             result_empty=True,
         )
-        return f"No callers found for '{symbol_name}'."
+        return (
+            f"No callers found for '{symbol_name}'."
+            " The index may be empty — try running index_project first."
+        )
 
     lines = [f"Callers of {symbol_name}:"]
     for c in callers:
