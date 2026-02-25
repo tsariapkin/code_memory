@@ -45,7 +45,7 @@ Replace `/path/to/code-memory` with the actual path (e.g. `~/.claude/plugins/cod
 
 ## Tools
 
-The plugin exposes 9 MCP tools:
+The plugin exposes 10 MCP tools:
 
 | Tool | Description |
 |------|-------------|
@@ -58,6 +58,7 @@ The plugin exposes 9 MCP tools:
 | `get_dependencies(symbol_name)` | List what a symbol calls, imports, or inherits. |
 | `get_callers(symbol_name)` | Reverse dependency lookup — who calls this symbol? |
 | `trace_call_chain(from_symbol, to_symbol, max_depth?)` | Find all call paths between two symbols. |
+| `get_usage_stats(days?)` | Show how often code-memory tools are called. Helps monitor adoption. |
 
 ## Usage
 
