@@ -11,6 +11,10 @@ dependencies = [
     "tree-sitter-typescript>=0.21.0",
     "tree-sitter-go>=0.21.0",
     "networkx>=3.0",
+    "onnxruntime>=1.17.0",
+    "tokenizers>=0.15.0",
+    "huggingface-hub>=0.20.0",
+    "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
