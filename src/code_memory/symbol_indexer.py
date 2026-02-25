@@ -74,7 +74,7 @@ def get_language_for_ext(ext: str) -> str | None:
 
 # Lazy-loaded grammar caches
 _grammars: dict[str, Language] = {}
-_parsers: dict[str, Parser] = {}
+_parsers: dict[str, Parser | None] = {}
 
 
 # Directories to skip during project indexing
@@ -113,11 +113,20 @@ SKIP_DIRS = frozenset(
 )
 
 
-def _get_parser(language: str = "python") -> Parser:
-    """Get or create a tree-sitter parser for the given language."""
+def _get_parser(language: str = "python") -> Parser | None:
+    """Get or create a tree-sitter parser for the given language.
+
+    Returns None if the grammar package is not installed.
+    """
     if language not in _parsers:
-        config = LANGUAGE_CONFIGS[language]
-        module = importlib.import_module(config["grammar_module"])
+        config = LANGUAGE_CONFIGS.get(language)
+        if not config:
+            return None
+        try:
+            module = importlib.import_module(config["grammar_module"])
+        except ImportError:
+            _parsers[language] = None
+            return None
         if language == "typescript":
             _grammars[language] = Language(module.language_typescript())
         else:
@@ -655,6 +664,8 @@ def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict
         source = f.read()
 
     parser = _get_parser(language)
+    if parser is None:
+        return []
     tree = parser.parse(source)
     root = tree.root_node
 
@@ -1134,6 +1145,8 @@ def extract_dependencies(file_path: str, language: str | None = None) -> list[di
         source = f.read()
 
     parser = _get_parser(language)
+    if parser is None:
+        return []
     tree = parser.parse(source)
     root = tree.root_node
 
