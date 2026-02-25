@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import logging
 import os
 
 from tree_sitter import Language, Parser
 
+logger = logging.getLogger(__name__)
+
+# "extensions" and "grammar_module" are used at runtime for language detection
+# and lazy grammar loading. Other keys (symbol_nodes, method_parent, etc.) document
+# the expected AST structure for each language.
 LANGUAGE_CONFIGS = {
     "python": {
         "extensions": [".py"],
@@ -738,7 +744,7 @@ def _collect_source_files(
 def index_project_files(
     db, project_id: int, project_root: str, changed_files: list[str] | None = None
 ) -> tuple[int, int]:
-    """Parse Python files and store symbols + dependencies in one pass.
+    """Parse source files and store symbols + dependencies in one pass.
 
     If changed_files is provided, only index those files (incremental mode).
     Returns (symbol_count, dependency_count).
@@ -782,6 +788,7 @@ def index_project_files(
         try:
             symbols = parse_file_symbols(full_path, language=lang)
         except Exception:
+            logger.warning("Failed to parse symbols from %s", rel_path, exc_info=True)
             continue
 
         for sym in symbols:
@@ -808,6 +815,7 @@ def index_project_files(
             deps = extract_dependencies(full_path, language=lang)
             all_deps.extend(deps)
         except Exception:
+            logger.warning("Failed to extract dependencies from %s", rel_path, exc_info=True)
             continue
 
     db.conn.commit()
