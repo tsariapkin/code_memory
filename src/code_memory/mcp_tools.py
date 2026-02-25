@@ -11,6 +11,7 @@ from src.code_memory.symbol_indexer import (
     index_project_files,
     query_symbol,
 )
+from src.code_memory.usage_logger import log_tool_usage
 
 mcp = FastMCP("code-memory")
 
@@ -80,6 +81,9 @@ def remember(
 
     memory_id = manager.remember(notes=notes, file_path=file_path, symbol_name=symbol_name)
     symbol_msg = f" (linked to {symbol_name})" if symbol_name else ""
+    log_tool_usage(
+        manager.db, manager.project_id, "remember", f"notes={notes[:50]}", result_empty=False
+    )
     return f"Stored memory #{memory_id}{symbol_msg}"
 
 
@@ -102,6 +106,9 @@ def recall(query: str) -> str:
     manager = _get_manager()
     results = manager.recall(query)
     if not results:
+        log_tool_usage(
+            manager.db, manager.project_id, "recall", f"query={query}", result_empty=True
+        )
         return "No memories found."
 
     lines = []
@@ -110,6 +117,7 @@ def recall(query: str) -> str:
         symbol = f" ({m['symbol_name']})" if m["symbol_name"] else ""
         file_info = f" in {m['file_path']}" if m["file_path"] else ""
         lines.append(f"#{m['id']}{stale_flag}{file_info}{symbol}: {m['notes']}")
+    log_tool_usage(manager.db, manager.project_id, "recall", f"query={query}", result_empty=False)
     return "\n".join(lines)
 
 
@@ -141,6 +149,7 @@ def get_project_summary() -> str:
 
     if not summary["recent_memories"]:
         lines.append("  (none yet)")
+    log_tool_usage(manager.db, manager.project_id, "get_project_summary", "", result_empty=False)
     return "\n".join(lines)
 
 
@@ -156,7 +165,11 @@ def forget(memory_id: int) -> str:
         memory_id: The memory ID to delete (shown as #N in recall output)
     """
     manager = _get_manager()
-    if manager.forget(memory_id):
+    found = manager.forget(memory_id)
+    log_tool_usage(
+        manager.db, manager.project_id, "forget", f"id={memory_id}", result_empty=not found
+    )
+    if found:
         return f"Deleted memory #{memory_id}"
     return f"Memory #{memory_id} not found."
 
@@ -191,10 +204,12 @@ def index_project() -> str:
         current = get_current_commit(project_root)
         if current == last_commit:
             _get_graph().invalidate()
+            log_tool_usage(manager.db, manager.project_id, "index_project", "", result_empty=False)
             return "No changes since last index."
         changed_files = get_changed_files(project_root, last_commit)
         if not changed_files:
             _get_graph().invalidate()
+            log_tool_usage(manager.db, manager.project_id, "index_project", "", result_empty=False)
             return "No source files changed since last index."
 
     sym_count, dep_count = index_project_files(db, project_id, project_root, changed_files)
@@ -204,6 +219,7 @@ def index_project() -> str:
     db.update_last_indexed_commit(project_id, current_commit)
 
     _get_graph().invalidate()
+    log_tool_usage(manager.db, manager.project_id, "index_project", "", result_empty=False)
     if changed_files:
         return (
             f"Incremental index: {sym_count} symbols and"
@@ -231,6 +247,9 @@ def query_symbols(name: str) -> str:
     manager = _get_manager()
     results = query_symbol(manager.db, manager.project_id, name)
     if not results:
+        log_tool_usage(
+            manager.db, manager.project_id, "query_symbols", f"name={name}", result_empty=True
+        )
         return f"No symbols found matching '{name}'. Try running index_project first."
 
     lines = []
@@ -241,6 +260,9 @@ def query_symbols(name: str) -> str:
         )
         if s.get("signature"):
             lines.append(f"  {s['signature']}")
+    log_tool_usage(
+        manager.db, manager.project_id, "query_symbols", f"name={name}", result_empty=False
+    )
     return "\n".join(lines)
 
 
@@ -261,8 +283,16 @@ def get_dependencies(symbol_name: str) -> str:
         symbol_name: Exact symbol name (e.g. "login", "UserService.get_user")
     """
     graph = _ensure_graph_loaded()
+    manager = _get_manager()
     deps = graph.get_dependencies(symbol_name)
     if not deps:
+        log_tool_usage(
+            manager.db,
+            manager.project_id,
+            "get_dependencies",
+            f"symbol={symbol_name}",
+            result_empty=True,
+        )
         return f"No dependencies found for '{symbol_name}'."
 
     lines = [f"Dependencies of {symbol_name}:"]
@@ -272,6 +302,13 @@ def get_dependencies(symbol_name: str) -> str:
         )
         if d.get("signature"):
             lines.append(f"    {d['signature']}")
+    log_tool_usage(
+        manager.db,
+        manager.project_id,
+        "get_dependencies",
+        f"symbol={symbol_name}",
+        result_empty=False,
+    )
     return "\n".join(lines)
 
 
@@ -292,8 +329,16 @@ def get_callers(symbol_name: str) -> str:
         symbol_name: Exact symbol name (e.g. "validate", "UserService.login")
     """
     graph = _ensure_graph_loaded()
+    manager = _get_manager()
     callers = graph.get_callers(symbol_name)
     if not callers:
+        log_tool_usage(
+            manager.db,
+            manager.project_id,
+            "get_callers",
+            f"symbol={symbol_name}",
+            result_empty=True,
+        )
         return f"No callers found for '{symbol_name}'."
 
     lines = [f"Callers of {symbol_name}:"]
@@ -303,6 +348,9 @@ def get_callers(symbol_name: str) -> str:
         )
         if c.get("signature"):
             lines.append(f"    {c['signature']}")
+    log_tool_usage(
+        manager.db, manager.project_id, "get_callers", f"symbol={symbol_name}", result_empty=False
+    )
     return "\n".join(lines)
 
 
@@ -327,11 +375,26 @@ def trace_call_chain(from_symbol: str, to_symbol: str, max_depth: int = 5) -> st
     """
     max_depth = min(max_depth, 20)
     graph = _ensure_graph_loaded()
+    manager = _get_manager()
     chains = graph.trace_call_chain(from_symbol, to_symbol, max_depth)
     if not chains:
+        log_tool_usage(
+            manager.db,
+            manager.project_id,
+            "trace_call_chain",
+            f"from={from_symbol} to={to_symbol}",
+            result_empty=True,
+        )
         return f"No call chain found from '{from_symbol}' to '{to_symbol}' (max depth {max_depth})."
 
     lines = [f"Call chains from {from_symbol} to {to_symbol}:"]
     for i, chain in enumerate(chains, 1):
         lines.append(f"  {i}. {' -> '.join(chain)}")
+    log_tool_usage(
+        manager.db,
+        manager.project_id,
+        "trace_call_chain",
+        f"from={from_symbol} to={to_symbol}",
+        result_empty=False,
+    )
     return "\n".join(lines)
