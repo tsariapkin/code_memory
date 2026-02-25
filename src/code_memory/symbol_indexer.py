@@ -137,28 +137,8 @@ def _extract_signature(node) -> str:
     return first_line.rstrip(":")
 
 
-def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict]:
-    """Parse a source file and extract all symbols (functions, classes, methods, imports).
-
-    Returns a list of dicts with keys:
-        symbol_name, symbol_type, line_start, line_end, signature, content_hash
-    """
-    if language is None:
-        ext = os.path.splitext(file_path)[1]
-        language = get_language_for_ext(ext)
-        if language is None:
-            return []
-
-    if language != "python":
-        return []  # Non-Python extraction implemented in later tasks
-
-    with open(file_path, "rb") as f:
-        source = f.read()
-
-    parser = _get_parser(language)
-    tree = parser.parse(source)
-    root = tree.root_node
-
+def _parse_python_symbols(root, source: bytes) -> list[dict]:
+    """Extract symbols from a Python AST root node."""
     symbols = []
 
     for child in root.children:
@@ -284,6 +264,197 @@ def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict
                         )
 
     return symbols
+
+
+def _parse_js_symbols(root, source: bytes) -> list[dict]:
+    """Extract symbols from a JavaScript AST root node."""
+    symbols = []
+
+    def _process_js_node(node):
+        """Process a single top-level JS node (may be unwrapped from export_statement)."""
+        if node.type == "function_declaration":
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                symbols.append(
+                    {
+                        "symbol_name": name_node.text.decode("utf-8"),
+                        "symbol_type": "function",
+                        "line_start": node.start_point[0] + 1,
+                        "line_end": node.end_point[0] + 1,
+                        "signature": _extract_signature(node),
+                        "content_hash": _content_hash(node.text),
+                        "base_classes": [],
+                    }
+                )
+
+        elif node.type in ("lexical_declaration", "variable_declaration"):
+            # Look for arrow functions: const fetchData = async (url) => { ... };
+            for declarator in node.named_children:
+                if declarator.type == "variable_declarator":
+                    name_node = declarator.child_by_field_name("name")
+                    value_node = declarator.child_by_field_name("value")
+                    if name_node and value_node and value_node.type == "arrow_function":
+                        symbols.append(
+                            {
+                                "symbol_name": name_node.text.decode("utf-8"),
+                                "symbol_type": "function",
+                                "line_start": node.start_point[0] + 1,
+                                "line_end": node.end_point[0] + 1,
+                                "signature": _extract_signature(node),
+                                "content_hash": _content_hash(node.text),
+                                "base_classes": [],
+                            }
+                        )
+
+        elif node.type == "class_declaration":
+            name_node = node.child_by_field_name("name")
+            if not name_node:
+                return
+            class_name = name_node.text.decode("utf-8")
+
+            # Extract base classes from class_heritage
+            base_classes = []
+            for child in node.children:
+                if child.type == "class_heritage":
+                    for heritage_child in child.named_children:
+                        if heritage_child.type == "identifier":
+                            base_classes.append(heritage_child.text.decode("utf-8"))
+                        elif heritage_child.type == "member_expression":
+                            base_classes.append(heritage_child.text.decode("utf-8"))
+
+            symbols.append(
+                {
+                    "symbol_name": class_name,
+                    "symbol_type": "class",
+                    "line_start": node.start_point[0] + 1,
+                    "line_end": node.end_point[0] + 1,
+                    "signature": _extract_signature(node),
+                    "content_hash": _content_hash(node.text),
+                    "base_classes": base_classes,
+                }
+            )
+
+            # Extract methods from class_body
+            body_node = node.child_by_field_name("body")
+            if body_node:
+                for body_child in body_node.named_children:
+                    if body_child.type == "method_definition":
+                        method_name_node = body_child.child_by_field_name("name")
+                        if method_name_node:
+                            method_name = method_name_node.text.decode("utf-8")
+                            symbols.append(
+                                {
+                                    "symbol_name": f"{class_name}.{method_name}",
+                                    "symbol_type": "method",
+                                    "line_start": body_child.start_point[0] + 1,
+                                    "line_end": body_child.end_point[0] + 1,
+                                    "signature": _extract_signature(body_child),
+                                    "content_hash": _content_hash(body_child.text),
+                                    "base_classes": [],
+                                }
+                            )
+
+        elif node.type == "import_statement":
+            # JS import: import { useState } from 'react'; or import axios from 'axios';
+            for child in node.children:
+                if child.type == "import_clause":
+                    _extract_js_import_names(child, node, symbols)
+
+    for child in root.children:
+        if child.type == "export_statement":
+            # Unwrap exported declarations
+            for export_child in child.named_children:
+                if export_child.type in (
+                    "function_declaration",
+                    "class_declaration",
+                    "lexical_declaration",
+                    "variable_declaration",
+                ):
+                    _process_js_node(export_child)
+        else:
+            _process_js_node(child)
+
+    return symbols
+
+
+def _extract_js_import_names(import_clause, import_node, symbols: list):
+    """Extract import symbol names from a JS import_clause node."""
+    for child in import_clause.children:
+        if child.type == "identifier":
+            # Default import: import axios from 'axios';
+            symbols.append(
+                {
+                    "symbol_name": child.text.decode("utf-8"),
+                    "symbol_type": "import",
+                    "line_start": import_node.start_point[0] + 1,
+                    "line_end": import_node.end_point[0] + 1,
+                    "signature": import_node.text.decode("utf-8").strip(),
+                    "content_hash": _content_hash(import_node.text),
+                    "base_classes": [],
+                }
+            )
+        elif child.type == "named_imports":
+            # Named imports: import { useState, useEffect } from 'react';
+            for specifier in child.named_children:
+                if specifier.type == "import_specifier":
+                    name_node = specifier.child_by_field_name("name")
+                    if name_node:
+                        symbols.append(
+                            {
+                                "symbol_name": name_node.text.decode("utf-8"),
+                                "symbol_type": "import",
+                                "line_start": import_node.start_point[0] + 1,
+                                "line_end": import_node.end_point[0] + 1,
+                                "signature": import_node.text.decode("utf-8").strip(),
+                                "content_hash": _content_hash(import_node.text),
+                                "base_classes": [],
+                            }
+                        )
+        elif child.type == "namespace_import":
+            # import * as foo from 'bar';
+            for ns_child in child.children:
+                if ns_child.type == "identifier":
+                    symbols.append(
+                        {
+                            "symbol_name": ns_child.text.decode("utf-8"),
+                            "symbol_type": "import",
+                            "line_start": import_node.start_point[0] + 1,
+                            "line_end": import_node.end_point[0] + 1,
+                            "signature": import_node.text.decode("utf-8").strip(),
+                            "content_hash": _content_hash(import_node.text),
+                            "base_classes": [],
+                        }
+                    )
+
+
+def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict]:
+    """Parse a source file and extract all symbols (functions, classes, methods, imports).
+
+    Returns a list of dicts with keys:
+        symbol_name, symbol_type, line_start, line_end, signature, content_hash
+    """
+    if language is None:
+        ext = os.path.splitext(file_path)[1]
+        language = get_language_for_ext(ext)
+        if language is None:
+            return []
+
+    if language not in ("python", "javascript"):
+        return []  # TS and Go implemented in later tasks
+
+    with open(file_path, "rb") as f:
+        source = f.read()
+
+    parser = _get_parser(language)
+    tree = parser.parse(source)
+    root = tree.root_node
+
+    if language == "python":
+        return _parse_python_symbols(root, source)
+    elif language == "javascript":
+        return _parse_js_symbols(root, source)
+    else:
+        return []
 
 
 def find_enclosing_symbol(file_path: str, line: int) -> str | None:
@@ -462,28 +633,9 @@ def query_symbol(db, project_id: int, name: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def extract_dependencies(file_path: str, language: str | None = None) -> list[dict]:
-    """Extract function call dependencies from a source file.
-
-    Returns list of dicts: {"source": "caller_name", "target": "callee_name", "dep_type": "calls"}
-    """
-    if language is None:
-        ext = os.path.splitext(file_path)[1]
-        language = get_language_for_ext(ext)
-        if language is None:
-            return []
-
-    if language != "python":
-        return []
-
-    with open(file_path, "rb") as f:
-        source = f.read()
-
-    parser = _get_parser(language)
-    tree = parser.parse(source)
-    root = tree.root_node
-
-    # First, collect all function/method definitions and their line ranges
+def _extract_python_dependencies(root, source: bytes) -> list[dict]:
+    """Extract dependencies from a Python AST root node."""
+    # Collect all function/method definitions and their line ranges
     func_ranges = []
     for child in root.children:
         if child.type == "function_definition":
@@ -532,9 +684,127 @@ def extract_dependencies(file_path: str, language: str | None = None) -> list[di
     calls = []
     _collect_calls(root, calls)
 
-    # Map each call to its enclosing function
+    return _build_deps(calls, func_ranges, class_bases, import_names)
+
+
+def _extract_js_dependencies(root, source: bytes) -> list[dict]:
+    """Extract dependencies from a JavaScript AST root node."""
+    func_ranges = []
+    class_bases = []
+    import_names = set()
+
+    def _process_js_dep_node(node):
+        """Process a single top-level JS node for dependency extraction."""
+        if node.type == "function_declaration":
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                name = name_node.text.decode("utf-8")
+                func_ranges.append((name, node.start_point[0], node.end_point[0]))
+
+        elif node.type in ("lexical_declaration", "variable_declaration"):
+            for declarator in node.named_children:
+                if declarator.type == "variable_declarator":
+                    name_node = declarator.child_by_field_name("name")
+                    value_node = declarator.child_by_field_name("value")
+                    if name_node and value_node and value_node.type == "arrow_function":
+                        name = name_node.text.decode("utf-8")
+                        func_ranges.append((name, node.start_point[0], node.end_point[0]))
+
+        elif node.type == "class_declaration":
+            name_node = node.child_by_field_name("name")
+            if not name_node:
+                return
+            class_name = name_node.text.decode("utf-8")
+
+            # Extract inheritance
+            for child in node.children:
+                if child.type == "class_heritage":
+                    for heritage_child in child.named_children:
+                        if heritage_child.type in ("identifier", "member_expression"):
+                            base_name = heritage_child.text.decode("utf-8")
+                            class_bases.append(("inherits", class_name, base_name))
+
+            # Extract methods
+            body_node = node.child_by_field_name("body")
+            if body_node:
+                for body_child in body_node.named_children:
+                    if body_child.type == "method_definition":
+                        method_name_node = body_child.child_by_field_name("name")
+                        if method_name_node:
+                            method_name = method_name_node.text.decode("utf-8")
+                            func_ranges.append(
+                                (
+                                    f"{class_name}.{method_name}",
+                                    body_child.start_point[0],
+                                    body_child.end_point[0],
+                                )
+                            )
+
+        elif node.type == "import_statement":
+            for child in node.children:
+                if child.type == "import_clause":
+                    _collect_js_import_names(child, import_names)
+
+    for child in root.children:
+        if child.type == "export_statement":
+            for export_child in child.named_children:
+                if export_child.type in (
+                    "function_declaration",
+                    "class_declaration",
+                    "lexical_declaration",
+                    "variable_declaration",
+                ):
+                    _process_js_dep_node(export_child)
+        else:
+            _process_js_dep_node(child)
+
+    # Find all function calls in the file
+    calls = []
+    _collect_js_calls(root, calls)
+
+    return _build_deps(calls, func_ranges, class_bases, import_names)
+
+
+def _collect_js_import_names(import_clause, import_names: set):
+    """Collect import names from a JS import_clause node into a set."""
+    for child in import_clause.children:
+        if child.type == "identifier":
+            import_names.add(child.text.decode("utf-8"))
+        elif child.type == "named_imports":
+            for specifier in child.named_children:
+                if specifier.type == "import_specifier":
+                    name_node = specifier.child_by_field_name("name")
+                    if name_node:
+                        import_names.add(name_node.text.decode("utf-8"))
+        elif child.type == "namespace_import":
+            for ns_child in child.children:
+                if ns_child.type == "identifier":
+                    import_names.add(ns_child.text.decode("utf-8"))
+
+
+def _collect_js_calls(node, calls: list):
+    """Recursively collect all JS function call names and their line numbers."""
+    if node.type == "call_expression":
+        func_node = node.child_by_field_name("function")
+        if func_node:
+            if func_node.type == "identifier":
+                calls.append((func_node.text.decode("utf-8"), node.start_point[0]))
+            elif func_node.type == "member_expression":
+                # e.g., axios.get() or this.db.find()
+                # Extract the last property_identifier
+                attr_text = func_node.text.decode("utf-8")
+                parts = attr_text.split(".")
+                calls.append((parts[-1], node.start_point[0]))
+
+    for child in node.children:
+        _collect_js_calls(child, calls)
+
+
+def _build_deps(calls, func_ranges, class_bases, import_names) -> list[dict]:
+    """Build dependency list from collected calls, func_ranges, class_bases, and import_names."""
     deps = []
     seen = set()
+
     for call_name, call_line in calls:
         enclosing = _find_enclosing_func(call_line, func_ranges)
         if enclosing and enclosing != call_name:
@@ -567,6 +837,35 @@ def extract_dependencies(file_path: str, language: str | None = None) -> list[di
                     deps.append({"source": enclosing, "target": call_name, "dep_type": "imports"})
 
     return deps
+
+
+def extract_dependencies(file_path: str, language: str | None = None) -> list[dict]:
+    """Extract function call dependencies from a source file.
+
+    Returns list of dicts: {"source": "caller_name", "target": "callee_name", "dep_type": "calls"}
+    """
+    if language is None:
+        ext = os.path.splitext(file_path)[1]
+        language = get_language_for_ext(ext)
+        if language is None:
+            return []
+
+    if language not in ("python", "javascript"):
+        return []  # TS and Go implemented in later tasks
+
+    with open(file_path, "rb") as f:
+        source = f.read()
+
+    parser = _get_parser(language)
+    tree = parser.parse(source)
+    root = tree.root_node
+
+    if language == "python":
+        return _extract_python_dependencies(root, source)
+    elif language == "javascript":
+        return _extract_js_dependencies(root, source)
+    else:
+        return []
 
 
 def _collect_calls(node, calls: list):
