@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS dependencies (
 CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(project_id, file_path);
 CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(project_id, symbol_name);
 CREATE INDEX IF NOT EXISTS idx_deps_type ON dependencies(dep_type);
+
+CREATE TABLE IF NOT EXISTS tool_usage (
+    id INTEGER PRIMARY KEY,
+    tool_name TEXT NOT NULL,
+    project_id INTEGER REFERENCES project(id),
+    timestamp REAL NOT NULL,
+    args_summary TEXT,
+    result_empty BOOLEAN DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_usage_project ON tool_usage(project_id, timestamp);
 """
 
 

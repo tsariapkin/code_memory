@@ -85,3 +85,26 @@ def test_dependencies_dep_type_index_exists(db):
         "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_deps_type'"
     ).fetchall()
     assert len(indexes) == 1
+
+
+def test_tool_usage_table_exists(db):
+    tables = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='tool_usage'"
+    ).fetchall()
+    assert len(tables) == 1
+
+
+def test_tool_usage_insert_and_query(db):
+    import time
+
+    project_id = db.get_or_create_project("/test")
+    db.execute(
+        """INSERT INTO tool_usage (tool_name, project_id, timestamp, args_summary, result_empty)
+           VALUES (?, ?, ?, ?, ?)""",
+        ("recall", project_id, time.time(), "query=auth", False),
+    )
+    db.conn.commit()
+    rows = db.execute("SELECT * FROM tool_usage WHERE project_id = ?", (project_id,)).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["tool_name"] == "recall"
+    assert rows[0]["result_empty"] == 0
