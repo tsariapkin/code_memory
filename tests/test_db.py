@@ -1,3 +1,6 @@
+import sqlite3
+import struct
+
 import pytest
 
 from src.code_memory.db import Database
@@ -108,3 +111,42 @@ def test_tool_usage_insert_and_query(db):
     assert len(rows) == 1
     assert rows[0]["tool_name"] == "recall"
     assert rows[0]["result_empty"] == 0
+
+
+def test_embeddings_table_exists(db):
+    cursor = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='embeddings'")
+    assert cursor.fetchone() is not None
+
+
+def test_embeddings_insert_and_query(db):
+    project_id = db.get_or_create_project("/test")
+    vector = struct.pack("3f", 0.1, 0.2, 0.3)
+    db.execute(
+        "INSERT INTO embeddings (project_id, source_type, source_id, text, vector) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (project_id, "memory", 1, "test text", vector),
+    )
+    db.conn.commit()
+    row = db.execute(
+        "SELECT * FROM embeddings WHERE project_id = ? AND source_type = 'memory'",
+        (project_id,),
+    ).fetchone()
+    assert row is not None
+    assert dict(row)["text"] == "test text"
+
+
+def test_embeddings_unique_constraint(db):
+    project_id = db.get_or_create_project("/test")
+    vector = struct.pack("3f", 0.1, 0.2, 0.3)
+    db.execute(
+        "INSERT INTO embeddings (project_id, source_type, source_id, text, vector) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (project_id, "memory", 1, "text1", vector),
+    )
+    db.conn.commit()
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            "INSERT INTO embeddings (project_id, source_type, source_id, text, vector) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (project_id, "memory", 1, "text2", vector),
+        )

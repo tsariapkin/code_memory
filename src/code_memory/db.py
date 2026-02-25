@@ -60,6 +60,18 @@ CREATE TABLE IF NOT EXISTS tool_usage (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tool_usage_project ON tool_usage(project_id, timestamp);
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER REFERENCES project(id),
+    source_type TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    vector BLOB NOT NULL,
+    UNIQUE(project_id, source_type, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_embeddings_project ON embeddings(project_id, source_type);
 """
 
 
