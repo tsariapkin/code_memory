@@ -1,12 +1,81 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
 
-import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 
-PY_LANGUAGE = Language(tspython.language())
+LANGUAGE_CONFIGS = {
+    "python": {
+        "extensions": [".py"],
+        "grammar_module": "tree_sitter_python",
+        "symbol_nodes": {
+            "function_definition": "function",
+            "class_definition": "class",
+        },
+        "method_parent": "class_definition",
+        "import_nodes": ["import_statement", "import_from_statement"],
+        "superclass_field": "superclasses",
+    },
+    "javascript": {
+        "extensions": [".js", ".jsx"],
+        "grammar_module": "tree_sitter_javascript",
+        "symbol_nodes": {
+            "function_declaration": "function",
+            "class_declaration": "class",
+            "arrow_function": "function",
+            "export_statement": None,
+        },
+        "method_parent": "class_declaration",
+        "import_nodes": ["import_statement"],
+        "superclass_field": "extends_clause",
+    },
+    "typescript": {
+        "extensions": [".ts", ".tsx"],
+        "grammar_module": "tree_sitter_typescript",
+        "symbol_nodes": {
+            "function_declaration": "function",
+            "class_declaration": "class",
+            "arrow_function": "function",
+            "interface_declaration": "interface",
+            "type_alias_declaration": "type_alias",
+            "export_statement": None,
+        },
+        "method_parent": "class_declaration",
+        "import_nodes": ["import_statement"],
+        "superclass_field": "extends_clause",
+    },
+    "go": {
+        "extensions": [".go"],
+        "grammar_module": "tree_sitter_go",
+        "symbol_nodes": {
+            "function_declaration": "function",
+            "method_declaration": "method",
+            "type_declaration": None,
+        },
+        "struct_node": "struct_type",
+        "interface_node": "interface_type",
+        "import_nodes": ["import_declaration"],
+    },
+}
+
+# Build extension-to-language lookup at module load time
+_EXT_TO_LANG: dict[str, str] = {}
+for _lang, _cfg in LANGUAGE_CONFIGS.items():
+    for _ext in _cfg["extensions"]:
+        _EXT_TO_LANG[_ext] = _lang
+
+
+def get_language_for_ext(ext: str) -> str | None:
+    """Return language name for a file extension, or None if unsupported."""
+    return _EXT_TO_LANG.get(ext)
+
+
+# Lazy-loaded grammar caches
+_grammars: dict[str, Language] = {}
+_parsers: dict[str, Parser] = {}
+
 
 # Directories to skip during project indexing
 SKIP_DIRS = frozenset(
@@ -44,14 +113,17 @@ SKIP_DIRS = frozenset(
 )
 
 
-_parser: Parser | None = None
-
-
-def _get_parser() -> Parser:
-    global _parser
-    if _parser is None:
-        _parser = Parser(PY_LANGUAGE)
-    return _parser
+def _get_parser(language: str = "python") -> Parser:
+    """Get or create a tree-sitter parser for the given language."""
+    if language not in _parsers:
+        config = LANGUAGE_CONFIGS[language]
+        module = importlib.import_module(config["grammar_module"])
+        if language == "typescript":
+            _grammars[language] = Language(module.language_typescript())
+        else:
+            _grammars[language] = Language(module.language())
+        _parsers[language] = Parser(_grammars[language])
+    return _parsers[language]
 
 
 def _content_hash(text: bytes) -> str:
