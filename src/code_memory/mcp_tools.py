@@ -398,3 +398,38 @@ def trace_call_chain(from_symbol: str, to_symbol: str, max_depth: int = 5) -> st
         result_empty=False,
     )
     return "\n".join(lines)
+
+
+@mcp.tool(
+    name="get_usage_stats",
+    title="Usage Stats",
+    description=(
+        "Use to check how often code-memory tools are being used."
+        " Shows call counts and empty-result rates per tool."
+    ),
+)
+def get_usage_stats(days: int = 7) -> str:
+    """Show usage statistics for code-memory tools.
+
+    Args:
+        days: Number of days to look back (default 7)
+    """
+    from src.code_memory.usage_logger import get_usage_stats as _get_stats
+
+    manager = _get_manager()
+    stats = _get_stats(manager.db, manager.project_id, days)
+    if not stats:
+        log_tool_usage(
+            manager.db, manager.project_id, "get_usage_stats", f"days={days}", result_empty=True
+        )
+        return f"No tool usage recorded in the last {days} days."
+
+    lines = [f"Last {days} days:"]
+    for tool_name, counts in stats.items():
+        empty_str = f" ({counts['empty']} empty)" if counts["empty"] else ""
+        call_word = "call" if counts["total"] == 1 else "calls"
+        lines.append(f"  {tool_name}: {counts['total']} {call_word}{empty_str}")
+    log_tool_usage(
+        manager.db, manager.project_id, "get_usage_stats", f"days={days}", result_empty=False
+    )
+    return "\n".join(lines)

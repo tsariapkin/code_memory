@@ -3,6 +3,7 @@ import subprocess
 import pytest
 
 from src.code_memory.db import Database, default_db_path
+from src.code_memory.mcp_tools import get_usage_stats as mcp_get_usage_stats
 from src.code_memory.mcp_tools import recall, remember
 
 
@@ -52,3 +53,15 @@ def test_recall_logs_usage_with_empty_flag(project_env):
     rows = db.execute("SELECT * FROM tool_usage WHERE tool_name = 'recall'").fetchall()
     assert len(rows) == 1
     assert rows[0]["result_empty"] == 1
+
+
+def test_get_usage_stats_tool(project_env):
+    remember(notes="test note")
+    recall(query="nonexistent")
+    recall(query="also nonexistent")
+
+    result = mcp_get_usage_stats(days=7)
+    assert "recall" in result
+    assert "2 calls" in result
+    assert "remember" in result
+    assert "1 call" in result
