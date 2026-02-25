@@ -518,6 +518,124 @@ def _parse_ts_symbols(root, source: bytes) -> list[dict]:
     return symbols
 
 
+def _parse_go_symbols(root, source: bytes) -> list[dict]:
+    """Extract symbols from a Go AST root node."""
+    symbols = []
+
+    for child in root.children:
+        if child.type == "function_declaration":
+            name_node = child.child_by_field_name("name")
+            if name_node:
+                symbols.append(
+                    {
+                        "symbol_name": name_node.text.decode("utf-8"),
+                        "symbol_type": "function",
+                        "line_start": child.start_point[0] + 1,
+                        "line_end": child.end_point[0] + 1,
+                        "signature": _extract_signature(child),
+                        "content_hash": _content_hash(child.text),
+                        "base_classes": [],
+                    }
+                )
+
+        elif child.type == "method_declaration":
+            # Method name is a field_identifier accessed via "name" field
+            name_node = child.child_by_field_name("name")
+            receiver_node = child.child_by_field_name("receiver")
+            receiver_type = ""
+            if receiver_node:
+                receiver_type = _extract_go_receiver_type(receiver_node)
+            method_name = name_node.text.decode("utf-8") if name_node else ""
+            full_name = f"{receiver_type}.{method_name}" if receiver_type else method_name
+            symbols.append(
+                {
+                    "symbol_name": full_name,
+                    "symbol_type": "method",
+                    "line_start": child.start_point[0] + 1,
+                    "line_end": child.end_point[0] + 1,
+                    "signature": _extract_signature(child),
+                    "content_hash": _content_hash(child.text),
+                    "base_classes": [],
+                }
+            )
+
+        elif child.type == "type_declaration":
+            # type_declaration contains type_spec children
+            for spec in child.named_children:
+                if spec.type == "type_spec":
+                    name_node = spec.child_by_field_name("name")
+                    type_node = spec.child_by_field_name("type")
+                    if name_node and type_node:
+                        type_name = name_node.text.decode("utf-8")
+                        if type_node.type == "struct_type":
+                            symbol_type = "struct"
+                        elif type_node.type == "interface_type":
+                            symbol_type = "interface"
+                        else:
+                            symbol_type = "type"
+                        symbols.append(
+                            {
+                                "symbol_name": type_name,
+                                "symbol_type": symbol_type,
+                                "line_start": child.start_point[0] + 1,
+                                "line_end": child.end_point[0] + 1,
+                                "signature": _extract_signature(child),
+                                "content_hash": _content_hash(child.text),
+                                "base_classes": [],
+                            }
+                        )
+
+        elif child.type == "import_declaration":
+            # May contain import_spec_list or a single import_spec
+            _extract_go_imports(child, symbols)
+
+    return symbols
+
+
+def _extract_go_receiver_type(receiver_node) -> str:
+    """Extract the type name from a Go method receiver parameter list."""
+    for child in receiver_node.named_children:
+        if child.type == "parameter_declaration":
+            for param_child in child.named_children:
+                if param_child.type == "type_identifier":
+                    return param_child.text.decode("utf-8")
+                elif param_child.type == "pointer_type":
+                    for ptr_child in param_child.named_children:
+                        if ptr_child.type == "type_identifier":
+                            return ptr_child.text.decode("utf-8")
+    return ""
+
+
+def _extract_go_imports(import_node, symbols: list):
+    """Extract import symbols from a Go import_declaration node."""
+    for child in import_node.named_children:
+        if child.type == "import_spec_list":
+            for spec in child.named_children:
+                if spec.type == "import_spec":
+                    _add_go_import_spec(spec, import_node, symbols)
+        elif child.type == "import_spec":
+            _add_go_import_spec(child, import_node, symbols)
+
+
+def _add_go_import_spec(spec, import_node, symbols: list):
+    """Add a single Go import_spec as a symbol."""
+    # The path is an interpreted_string_literal
+    path_text = spec.text.decode("utf-8").strip('"')
+    # Package name is the last segment of the path
+    pkg_name = path_text.rsplit("/", 1)[-1]
+    symbols.append(
+        {
+            "symbol_name": pkg_name,
+            "symbol_type": "import",
+            "line_start": spec.start_point[0] + 1,
+            "line_end": spec.end_point[0] + 1,
+            "signature": f'import "{path_text}"',
+            "content_hash": _content_hash(spec.text),
+            "base_classes": [],
+        }
+    )
+
+
 def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict]:
     """Parse a source file and extract all symbols (functions, classes, methods, imports).
 
@@ -530,8 +648,8 @@ def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict
         if language is None:
             return []
 
-    if language not in ("python", "javascript", "typescript"):
-        return []  # Go implemented in later tasks
+    if language not in ("python", "javascript", "typescript", "go"):
+        return []
 
     with open(file_path, "rb") as f:
         source = f.read()
@@ -546,6 +664,8 @@ def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict
         return _parse_js_symbols(root, source)
     elif language == "typescript":
         return _parse_ts_symbols(root, source)
+    elif language == "go":
+        return _parse_go_symbols(root, source)
     else:
         return []
 
@@ -932,6 +1052,70 @@ def _build_deps(calls, func_ranges, class_bases, import_names) -> list[dict]:
     return deps
 
 
+def _extract_go_dependencies(root, source: bytes) -> list[dict]:
+    """Extract dependencies from a Go AST root node."""
+    func_ranges = []
+    import_names = set()
+
+    for child in root.children:
+        if child.type == "function_declaration":
+            name_node = child.child_by_field_name("name")
+            if name_node:
+                name = name_node.text.decode("utf-8")
+                func_ranges.append((name, child.start_point[0], child.end_point[0]))
+
+        elif child.type == "method_declaration":
+            name_node = child.child_by_field_name("name")
+            receiver_node = child.child_by_field_name("receiver")
+            receiver_type = ""
+            if receiver_node:
+                receiver_type = _extract_go_receiver_type(receiver_node)
+            method_name = name_node.text.decode("utf-8") if name_node else ""
+            full_name = f"{receiver_type}.{method_name}" if receiver_type else method_name
+            func_ranges.append((full_name, child.start_point[0], child.end_point[0]))
+
+        elif child.type == "import_declaration":
+            _collect_go_import_names(child, import_names)
+
+    # Collect all call expressions
+    calls = []
+    _collect_go_calls(root, calls)
+
+    return _build_deps(calls, func_ranges, [], import_names)
+
+
+def _collect_go_import_names(import_node, import_names: set):
+    """Collect import package names from a Go import_declaration."""
+    for child in import_node.named_children:
+        if child.type == "import_spec_list":
+            for spec in child.named_children:
+                if spec.type == "import_spec":
+                    path_text = spec.text.decode("utf-8").strip('"')
+                    pkg_name = path_text.rsplit("/", 1)[-1]
+                    import_names.add(pkg_name)
+        elif child.type == "import_spec":
+            path_text = child.text.decode("utf-8").strip('"')
+            pkg_name = path_text.rsplit("/", 1)[-1]
+            import_names.add(pkg_name)
+
+
+def _collect_go_calls(node, calls: list):
+    """Recursively collect all Go function call names and their line numbers."""
+    if node.type == "call_expression":
+        func_node = node.child_by_field_name("function")
+        if func_node:
+            if func_node.type == "identifier":
+                calls.append((func_node.text.decode("utf-8"), node.start_point[0]))
+            elif func_node.type == "selector_expression":
+                # e.g., fmt.Println or obj.Method()
+                # Extract just the field_identifier (last part)
+                parts = func_node.text.decode("utf-8").split(".")
+                calls.append((parts[-1], node.start_point[0]))
+
+    for child in node.children:
+        _collect_go_calls(child, calls)
+
+
 def extract_dependencies(file_path: str, language: str | None = None) -> list[dict]:
     """Extract function call dependencies from a source file.
 
@@ -943,8 +1127,8 @@ def extract_dependencies(file_path: str, language: str | None = None) -> list[di
         if language is None:
             return []
 
-    if language not in ("python", "javascript", "typescript"):
-        return []  # Go implemented in later tasks
+    if language not in ("python", "javascript", "typescript", "go"):
+        return []
 
     with open(file_path, "rb") as f:
         source = f.read()
@@ -957,6 +1141,8 @@ def extract_dependencies(file_path: str, language: str | None = None) -> list[di
         return _extract_python_dependencies(root, source)
     elif language in ("javascript", "typescript"):
         return _extract_js_dependencies(root, source)
+    elif language == "go":
+        return _extract_go_dependencies(root, source)
     else:
         return []
 
