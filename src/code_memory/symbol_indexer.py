@@ -137,16 +137,25 @@ def _extract_signature(node) -> str:
     return first_line.rstrip(":")
 
 
-def parse_file_symbols(file_path: str) -> list[dict]:
-    """Parse a Python file and extract all symbols (functions, classes, methods, imports).
+def parse_file_symbols(file_path: str, language: str | None = None) -> list[dict]:
+    """Parse a source file and extract all symbols (functions, classes, methods, imports).
 
     Returns a list of dicts with keys:
         symbol_name, symbol_type, line_start, line_end, signature, content_hash
     """
+    if language is None:
+        ext = os.path.splitext(file_path)[1]
+        language = get_language_for_ext(ext)
+        if language is None:
+            return []
+
+    if language != "python":
+        return []  # Non-Python extraction implemented in later tasks
+
     with open(file_path, "rb") as f:
         source = f.read()
 
-    parser = _get_parser()
+    parser = _get_parser(language)
     tree = parser.parse(source)
     root = tree.root_node
 
@@ -300,31 +309,34 @@ def find_enclosing_symbol(file_path: str, line: int) -> str | None:
     return best_match
 
 
-def _collect_python_files(
+def _collect_source_files(
     project_root: str, only_files: list[str] | None = None
-) -> list[tuple[str, str]]:
-    """Collect (full_path, rel_path) pairs for Python files.
+) -> list[tuple[str, str, str]]:
+    """Collect (full_path, rel_path, language) tuples for all supported source files.
 
-    If only_files is given, return only those relative paths (that exist).
+    If only_files is given, return only those relative paths (that exist and are supported).
     """
     if only_files is not None:
         result = []
         for rel in only_files:
             full = os.path.join(project_root, rel)
-            if rel.endswith(".py") and os.path.isfile(full):
-                result.append((full, rel))
+            ext = os.path.splitext(rel)[1]
+            lang = get_language_for_ext(ext)
+            if lang and os.path.isfile(full):
+                result.append((full, rel, lang))
         return result
 
     result = []
     for dirpath, dirnames, filenames in os.walk(project_root):
-        # Prune skipped directories in-place
         dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS]
         for filename in filenames:
-            if not filename.endswith(".py"):
+            ext = os.path.splitext(filename)[1]
+            lang = get_language_for_ext(ext)
+            if not lang:
                 continue
             full_path = os.path.join(dirpath, filename)
             rel_path = os.path.relpath(full_path, project_root)
-            result.append((full_path, rel_path))
+            result.append((full_path, rel_path, lang))
     return result
 
 
@@ -336,11 +348,11 @@ def index_project_files(
     If changed_files is provided, only index those files (incremental mode).
     Returns (symbol_count, dependency_count).
     """
-    files = _collect_python_files(project_root, changed_files)
+    files = _collect_source_files(project_root, changed_files)
 
     if changed_files is not None:
         # Delete old symbols and deps for changed files
-        for _, rel_path in files:
+        for _, rel_path, _lang in files:
             db.execute(
                 """DELETE FROM dependencies WHERE source_id IN
                    (SELECT id FROM symbols
@@ -353,7 +365,7 @@ def index_project_files(
             )
         # Also clean up deleted files (in changed_files but not on disk)
         for rel in changed_files:
-            if rel.endswith(".py"):
+            if get_language_for_ext(os.path.splitext(rel)[1]):
                 full = os.path.join(project_root, rel)
                 if not os.path.isfile(full):
                     db.execute(
@@ -371,23 +383,24 @@ def index_project_files(
     sym_count = 0
     all_deps = []
 
-    for full_path, rel_path in files:
+    for full_path, rel_path, lang in files:
         try:
-            symbols = parse_file_symbols(full_path)
+            symbols = parse_file_symbols(full_path, language=lang)
         except Exception:
             continue
 
         for sym in symbols:
             db.execute(
                 """INSERT OR REPLACE INTO symbols
-                   (project_id, file_path, symbol_name, symbol_type,
+                   (project_id, file_path, symbol_name, symbol_type, language,
                     line_start, line_end, signature, content_hash)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project_id,
                     rel_path,
                     sym["symbol_name"],
                     sym["symbol_type"],
+                    lang,
                     sym["line_start"],
                     sym["line_end"],
                     sym["signature"],
@@ -397,7 +410,7 @@ def index_project_files(
             sym_count += 1
 
         try:
-            deps = extract_dependencies(full_path)
+            deps = extract_dependencies(full_path, language=lang)
             all_deps.extend(deps)
         except Exception:
             continue
@@ -449,15 +462,24 @@ def query_symbol(db, project_id: int, name: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def extract_dependencies(file_path: str) -> list[dict]:
-    """Extract function call dependencies from a Python file.
+def extract_dependencies(file_path: str, language: str | None = None) -> list[dict]:
+    """Extract function call dependencies from a source file.
 
     Returns list of dicts: {"source": "caller_name", "target": "callee_name", "dep_type": "calls"}
     """
+    if language is None:
+        ext = os.path.splitext(file_path)[1]
+        language = get_language_for_ext(ext)
+        if language is None:
+            return []
+
+    if language != "python":
+        return []
+
     with open(file_path, "rb") as f:
         source = f.read()
 
-    parser = _get_parser()
+    parser = _get_parser(language)
     tree = parser.parse(source)
     root = tree.root_node
 

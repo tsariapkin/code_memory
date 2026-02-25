@@ -131,3 +131,19 @@ def test_parse_no_base_classes_when_none(tmp_path):
 
     base = next(s for s in symbols if s["symbol_name"] == "Base")
     assert base["base_classes"] == []
+
+
+def test_parse_file_symbols_accepts_language(tmp_path):
+    f = tmp_path / "sample.py"
+    f.write_text(SAMPLE_CODE)
+    symbols = parse_file_symbols(str(f), language="python")
+    func_names = [s["symbol_name"] for s in symbols if s["symbol_type"] == "function"]
+    assert "greet" in func_names
+
+
+def test_parse_file_symbols_auto_detects_language(tmp_path):
+    f = tmp_path / "sample.py"
+    f.write_text(SAMPLE_CODE)
+    symbols = parse_file_symbols(str(f))
+    func_names = [s["symbol_name"] for s in symbols if s["symbol_type"] == "function"]
+    assert "greet" in func_names

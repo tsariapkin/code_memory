@@ -194,7 +194,7 @@ def index_project() -> str:
         changed_files = get_changed_files(project_root, last_commit)
         if not changed_files:
             _get_graph().invalidate()
-            return "No Python files changed since last index."
+            return "No source files changed since last index."
 
     sym_count, dep_count = index_project_files(db, project_id, project_root, changed_files)
 
