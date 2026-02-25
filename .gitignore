@@ -16,3 +16,6 @@ build/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Worktrees
+.worktrees/
